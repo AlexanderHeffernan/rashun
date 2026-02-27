@@ -13,8 +13,9 @@ struct AmpSource: AISource {
 
     private func runCommand() throws -> String {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-l", "-c", "amp usage"]
+        process.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.amp/bin/amp")
+        process.arguments = ["usage"]
+        process.currentDirectoryURL = URL(fileURLWithPath: "/")
 
         let pipe = Pipe()
         process.standardOutput = pipe

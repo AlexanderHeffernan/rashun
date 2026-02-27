@@ -31,8 +31,9 @@ struct CopilotSource: AISource {
 
     private func getGhAuthToken() throws -> String {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-l", "-c", "gh auth token"]
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/gh")
+        process.arguments = ["auth", "token"]
+        process.currentDirectoryURL = URL(fileURLWithPath: "/")
 
         let pipe = Pipe()
         process.standardOutput = pipe

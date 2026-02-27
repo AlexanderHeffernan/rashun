@@ -1,9 +1,13 @@
 import Cocoa
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem?
     var menu: NSMenu?
+    var pollTimer: Timer?
+
+    let pollInterval: TimeInterval = 600 // seconds (10 minutes)
+    let loadingIndicator = "⏳"
 
     let sources: [AISource] = [
         CopilotSource(),
@@ -11,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     ]
 
     var results: [String: String] = [:]
+    var loadingSources: Set<String> = []
 
     func applicationDidFinishLaunching(_: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -20,10 +25,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu = NSMenu()
+        menu?.delegate = self
         statusItem?.menu = menu
 
         updateMenu()
 
+        Task { await refresh() }
+
+        pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in await self.refresh() }
+        }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
         Task { await refresh() }
     }
 
@@ -34,7 +49,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func updateMenu() {
         menu?.removeAllItems()
         for source in sources {
-            let display = results[source.name] ?? "N/A"
+            let display = loadingSources.contains(source.name)
+                ? loadingIndicator
+                : (results[source.name] ?? "N/A")
             menu?.addItem(withTitle: "\(source.name) Remaining: \(display)", action: nil, keyEquivalent: "")
         }
         menu?.addItem(NSMenuItem.separator())
@@ -42,6 +59,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func refresh() async {
+        guard loadingSources.isEmpty else { return }
+
+        for source in sources {
+            loadingSources.insert(source.name)
+        }
+        updateMenu()
+
         for source in sources {
             do {
                 let usage = try await source.fetchUsage()
@@ -50,7 +74,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 print("\(source.name) fetch error: \(error)")
                 results[source.name] = "Error"
             }
+            loadingSources.remove(source.name)
+            updateMenu()
         }
+
         updateMenu()
     }
 }
