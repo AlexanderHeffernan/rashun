@@ -18,7 +18,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.title = "AI"
+            // try to use an SF Symbol brain icon (template) and show a placeholder title
+            if let brain = NSImage(systemSymbolName: "brain", accessibilityDescription: "AI") {
+                brain.isTemplate = true
+                button.image = brain
+                button.imagePosition = .imageLeft
+            } else {
+                button.title = "AI"
+            }
+            button.title = "—"
         }
 
         menu = NSMenu()
@@ -76,24 +84,89 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refresh() async {
         guard loadingSources.isEmpty else { return }
         let enabled = sources.filter { SettingsStore.shared.isEnabled(sourceName: $0.name) }
-        for source in enabled {
-            loadingSources.insert(source.name)
-        }
+        for source in enabled { loadingSources.insert(source.name) }
         updateMenu()
 
-        for source in enabled {
-            do {
-                let usage = try await source.fetchUsage()
-                results[source.name] = usage.formatted
-            } catch {
-                print("\(source.name) fetch error: \(error)")
-                results[source.name] = "Error"
+        var percentValues: [Double] = []
+
+        await withTaskGroup(of: (String, UsageResult?).self) { group in
+            for source in enabled {
+                group.addTask {
+                    let res = try? await source.fetchUsage()
+                    return (source.name, res)
+                }
             }
-            loadingSources.remove(source.name)
-            updateMenu()
+
+            for await (name, res) in group {
+                if let usage = res {
+                    results[name] = usage.formatted
+                    let p = min(max(usage.percentRemaining, 0), 100)
+                    percentValues.append(p)
+                } else {
+                    results[name] = "Error"
+                }
+                loadingSources.remove(name)
+                updateMenu()
+            }
         }
 
-        updateMenu()
+        // compute average remaining percentage across successful sources
+        if percentValues.isEmpty {
+            // no successful sources to aggregate
+            if let button = statusItem?.button {
+                button.title = "—"
+                if let outline = NSImage(systemSymbolName: "brain", accessibilityDescription: nil) {
+                    outline.isTemplate = true
+                    button.image = outline
+                }
+            }
+        } else {
+            let avg = percentValues.reduce(0, +) / Double(percentValues.count)
+            let formatted = String(format: "%.0f%%", avg)
+            if let button = statusItem?.button {
+                button.title = formatted
+                if let img = brainFillImage(percent: avg, size: NSSize(width: 16, height: 16)) {
+                    button.image = img
+                    button.imagePosition = .imageLeft
+                }
+            }
+        }
+    }
+
+    /// Generate a template NSImage representing the brain with the bottom `percent` filled.
+    /// `percent` is 0..100. Returns a template image so the system tints it for the menu bar.
+    private func brainFillImage(percent: Double, size: NSSize) -> NSImage? {
+        guard let fill = NSImage(systemSymbolName: "brain.fill", accessibilityDescription: nil),
+              let outline = NSImage(systemSymbolName: "brain", accessibilityDescription: nil) else {
+            return nil
+        }
+
+        let image = NSImage(size: size)
+        image.isTemplate = true
+
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return nil }
+
+        let bounds = CGRect(origin: .zero, size: size)
+
+        // Draw the filled brain clipped to the bottom percent
+        ctx.saveGState()
+        let clippedHeight = bounds.height * CGFloat(min(max(percent, 0), 100) / 100.0)
+        let fillClipRect = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: clippedHeight)
+        ctx.clip(to: fillClipRect)
+        fill.draw(in: bounds)
+        ctx.restoreGState()
+
+        // Draw the outline clipped to the top (unfilled) portion so it visually shows the empty area
+        ctx.saveGState()
+        let outlineClipRect = CGRect(x: bounds.minX, y: bounds.minY + clippedHeight, width: bounds.width, height: bounds.height - clippedHeight)
+        ctx.clip(to: outlineClipRect)
+        outline.draw(in: bounds)
+        ctx.restoreGState()
+
+        return image
     }
 
     @objc private func settingsChanged(_ note: Notification) {
