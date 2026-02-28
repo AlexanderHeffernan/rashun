@@ -30,7 +30,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         updateMenu()
 
-        Task { await refresh() }
+        Task {
+            _ = await NotificationManager.shared.requestAuthorization()
+            await refresh()
+        }
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
