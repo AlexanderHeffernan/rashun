@@ -9,10 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let pollInterval: TimeInterval = 600 // seconds (10 minutes)
     let loadingIndicator = "⏳"
 
-    let sources: [AISource] = [
-        CopilotSource(),
-        AmpSource(),
-    ]
+    var sources: [AISource] { allSources }
 
     var results: [String: String] = [:]
     var loadingSources: Set<String> = []
@@ -28,6 +25,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu?.delegate = self
         statusItem?.menu = menu
 
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged(_:)), name: .aiSettingsChanged, object: nil)
+
+        SettingsStore.shared.ensureSources(sources.map { $0.name })
         updateMenu()
 
         Task {
@@ -51,25 +51,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func updateMenu() {
         menu?.removeAllItems()
-        for source in sources {
-            let display = loadingSources.contains(source.name)
-                ? loadingIndicator
-                : (results[source.name] ?? "N/A")
-            menu?.addItem(withTitle: "\(source.name) Remaining: \(display)", action: nil, keyEquivalent: "")
+        let enabled = sources.filter { SettingsStore.shared.isEnabled(sourceName: $0.name) }
+        if enabled.isEmpty {
+            menu?.addItem(withTitle: "No sources enabled — open Settings...", action: #selector(showPreferences), keyEquivalent: "")
+        } else {
+            for source in enabled {
+                let display = loadingSources.contains(source.name)
+                    ? loadingIndicator
+                    : (results[source.name] ?? "N/A")
+                menu?.addItem(withTitle: "\(source.name) Remaining: \(display)", action: nil, keyEquivalent: "")
+            }
         }
+        menu?.addItem(NSMenuItem.separator())
+        menu?.addItem(withTitle: "Settings...", action: #selector(showPreferences), keyEquivalent: ",")
         menu?.addItem(NSMenuItem.separator())
         menu?.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
     }
 
+    @objc func showPreferences() {
+        PreferencesWindowController.shared.configure(withSources: sources)
+        PreferencesWindowController.shared.showWindowAndBringToFront()
+    }
+
     func refresh() async {
         guard loadingSources.isEmpty else { return }
-
-        for source in sources {
+        let enabled = sources.filter { SettingsStore.shared.isEnabled(sourceName: $0.name) }
+        for source in enabled {
             loadingSources.insert(source.name)
         }
         updateMenu()
 
-        for source in sources {
+        for source in enabled {
             do {
                 let usage = try await source.fetchUsage()
                 results[source.name] = usage.formatted
@@ -81,6 +93,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             updateMenu()
         }
 
+        updateMenu()
+    }
+
+    @objc private func settingsChanged(_ note: Notification) {
+        let enabled = Set(sources.filter { SettingsStore.shared.isEnabled(sourceName: $0.name) }.map { $0.name })
+        // prune results for disabled sources
+        results = results.filter { enabled.contains($0.key) }
         updateMenu()
     }
 }

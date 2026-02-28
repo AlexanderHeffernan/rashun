@@ -2,6 +2,7 @@ import Foundation
 
 struct CopilotSource: AISource {
     let name = "Copilot"
+    let requirements = "Requires GitHub CLI 'gh' configured and authenticated (used to fetch auth token)."
 
     func fetchUsage() async throws -> UsageResult {
         let token = try getGhAuthToken()

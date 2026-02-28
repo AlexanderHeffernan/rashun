@@ -2,6 +2,7 @@ import Foundation
 
 struct AmpSource: AISource {
     let name = "AMP"
+    let requirements = "Requires the amp CLI installed at ~/.amp/bin/amp and executable."
 
     func fetchUsage() async throws -> UsageResult {
         let output = try runCommand()
