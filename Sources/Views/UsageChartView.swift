@@ -15,6 +15,12 @@ struct ChartSeries {
 @MainActor
 class UsageChartView: NSView {
 
+    private struct HoverSeriesValue {
+        let label: String
+        let value: Double?
+        let isForecast: Bool
+    }
+
     var series: [ChartSeries] = [] {
         didSet { needsDisplay = true }
     }
@@ -29,6 +35,8 @@ class UsageChartView: NSView {
     private let paddingBottom: CGFloat = 35
     private let paddingLeft: CGFloat = 55
     private let paddingRight: CGFloat = 20
+    private var trackingAreaRef: NSTrackingArea?
+    private var hoverDate: Date?
 
     private var chartRect: NSRect {
         NSRect(
@@ -37,6 +45,41 @@ class UsageChartView: NSView {
             width: bounds.width - paddingLeft - paddingRight,
             height: bounds.height - paddingTop - paddingBottom
         )
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaRef {
+            removeTrackingArea(trackingAreaRef)
+        }
+        let options: NSTrackingArea.Options = [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect]
+        let tracking = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
+        addTrackingArea(tracking)
+        trackingAreaRef = tracking
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        if chartRect.contains(location),
+           let (startDate, endDate) = effectiveDateRange(),
+           endDate > startDate {
+            let clampedX = min(max(location.x, chartRect.minX), chartRect.maxX)
+            let fraction = (clampedX - chartRect.minX) / chartRect.width
+            hoverDate = startDate.addingTimeInterval(endDate.timeIntervalSince(startDate) * Double(fraction))
+        } else {
+            hoverDate = nil
+        }
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverDate = nil
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -63,11 +106,18 @@ class UsageChartView: NSView {
             drawLine(s.forecast, color: s.color.withAlphaComponent(0.65), in: chart, start: startDate, end: endDate, dashed: true)
         }
 
-        drawNowMarker(in: chart, start: startDate, end: endDate)
+        if let hoverDate {
+            drawHoverMarker(at: hoverDate, in: chart, start: startDate, end: endDate)
+        } else {
+            drawNowMarker(in: chart, start: startDate, end: endDate)
+        }
 
         NSGraphicsContext.current?.restoreGraphicsState()
 
         drawLegend(in: chart)
+        if let hoverDate {
+            drawHoverTooltip(at: hoverDate, in: chart, start: startDate, end: endDate)
+        }
     }
 
     private func effectiveDateRange() -> (Date, Date)? {
@@ -217,6 +267,138 @@ class UsageChartView: NSView {
         path.line(to: NSPoint(x: x, y: rect.maxY))
         NSColor.tertiaryLabelColor.setStroke()
         path.stroke()
+    }
+
+    private func drawHoverMarker(at date: Date, in rect: NSRect, start: Date, end: Date) {
+        guard date >= start, date <= end else { return }
+
+        let x = xFor(date, in: rect, start: start, end: end)
+        let path = NSBezierPath()
+        path.lineWidth = 1
+        path.setLineDash([5, 4], count: 2, phase: 0)
+        path.move(to: NSPoint(x: x, y: rect.minY))
+        path.line(to: NSPoint(x: x, y: rect.maxY))
+        NSColor.secondaryLabelColor.withAlphaComponent(0.8).setStroke()
+        path.stroke()
+    }
+
+    private func drawHoverTooltip(at date: Date, in rect: NSRect, start: Date, end: Date) {
+        let values = series.map { hoverValue(for: $0, at: date) }
+        let anyForecast = values.contains(where: { $0.isForecast })
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "EEE, MMM d 'at' HH:mm:ss"
+
+        let headerAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let valueAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let footnoteAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+
+        var lines: [(String, [NSAttributedString.Key: Any])] = []
+        lines.append((timeFormatter.string(from: date), headerAttrs))
+        for value in values {
+            let usageText: String
+            if let usage = value.value {
+                let marker = value.isForecast ? " (forecast)" : ""
+                usageText = "\(value.label): \(String(format: "%.1f", usage))%\(marker)"
+            } else {
+                usageText = "\(value.label): —"
+            }
+            lines.append((usageText, valueAttrs))
+        }
+        if anyForecast {
+            lines.append(("Forecast values are projected estimates.", footnoteAttrs))
+        }
+
+        let lineSpacing: CGFloat = 3
+        let paddingX: CGFloat = 8
+        let paddingY: CGFloat = 8
+
+        var maxLineWidth: CGFloat = 0
+        var totalTextHeight: CGFloat = 0
+        for (index, line) in lines.enumerated() {
+            let size = line.0.size(withAttributes: line.1)
+            maxLineWidth = max(maxLineWidth, size.width)
+            totalTextHeight += size.height
+            if index < lines.count - 1 {
+                totalTextHeight += lineSpacing
+            }
+        }
+
+        let bubbleWidth = maxLineWidth + (paddingX * 2)
+        let bubbleHeight = totalTextHeight + (paddingY * 2)
+
+        let hoverX = xFor(date, in: rect, start: start, end: end)
+        var bubbleX = hoverX + 10
+        if bubbleX + bubbleWidth > rect.maxX - 4 {
+            bubbleX = hoverX - bubbleWidth - 10
+        }
+        bubbleX = max(rect.minX + 4, min(bubbleX, rect.maxX - bubbleWidth - 4))
+        let bubbleY = rect.maxY - bubbleHeight - 6
+        let bubbleRect = NSRect(x: bubbleX, y: bubbleY, width: bubbleWidth, height: bubbleHeight)
+
+        let bubblePath = NSBezierPath(roundedRect: bubbleRect, xRadius: 8, yRadius: 8)
+        NSColor.controlBackgroundColor.withAlphaComponent(0.95).setFill()
+        bubblePath.fill()
+        NSColor.separatorColor.withAlphaComponent(0.9).setStroke()
+        bubblePath.lineWidth = 1
+        bubblePath.stroke()
+
+        var textY = bubbleRect.maxY - paddingY
+        for (text, attrs) in lines {
+            let size = text.size(withAttributes: attrs)
+            textY -= size.height
+            text.draw(at: NSPoint(x: bubbleRect.minX + paddingX, y: textY), withAttributes: attrs)
+            textY -= lineSpacing
+        }
+    }
+
+    private func hoverValue(for series: ChartSeries, at date: Date) -> HoverSeriesValue {
+        let lastActualDate = series.points.last?.date
+        let actualValue = value(at: date, from: series.points)
+        let forecastValue = value(at: date, from: series.forecast)
+
+        if let lastActualDate, date <= lastActualDate, let actualValue {
+            return HoverSeriesValue(label: series.label, value: actualValue, isForecast: false)
+        }
+        if let forecastValue {
+            return HoverSeriesValue(label: series.label, value: forecastValue, isForecast: true)
+        }
+        return HoverSeriesValue(label: series.label, value: actualValue, isForecast: false)
+    }
+
+    private func value(at date: Date, from points: [ChartPoint]) -> Double? {
+        guard !points.isEmpty else { return nil }
+        guard let first = points.first, let last = points.last else { return nil }
+        if date < first.date || date > last.date { return nil }
+
+        if points.count == 1 {
+            return first.value
+        }
+
+        if let upperIndex = points.firstIndex(where: { $0.date >= date }) {
+            if upperIndex == 0 {
+                return points[0].value
+            }
+            let upper = points[upperIndex]
+            let lower = points[upperIndex - 1]
+            let span = upper.date.timeIntervalSince(lower.date)
+            if span <= 0 {
+                return upper.value
+            }
+            let fraction = date.timeIntervalSince(lower.date) / span
+            return lower.value + (upper.value - lower.value) * fraction
+        }
+
+        return last.value
     }
 
     private func drawLegend(in rect: NSRect) {
