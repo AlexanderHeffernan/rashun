@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     var results: [String: String] = [:]
     var loadingSources: Set<String> = []
+    var lastRefreshDate: Date?
 
     func applicationDidFinishLaunching(_: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -48,7 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        Task { await refresh() }
+        updateMenu()
     }
 
     @objc func quit() {
@@ -78,9 +79,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         menu?.addItem(NSMenuItem.separator())
+
+        let refreshItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        let refreshButton = RefreshButton(target: self, action: #selector(refreshClicked))
+        refreshButton.update(loading: !loadingSources.isEmpty, lastRefresh: lastRefreshDate)
+        refreshItem.view = refreshButton
+        menu?.addItem(refreshItem)
+
+        menu?.addItem(NSMenuItem.separator())
         menu?.addItem(withTitle: "Settings...", action: #selector(showPreferences), keyEquivalent: ",")
         menu?.addItem(NSMenuItem.separator())
         menu?.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
+    }
+
+    @objc func refreshClicked() {
+        Task { await refresh() }
     }
 
     @objc func showPreferences() {
@@ -119,6 +132,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        lastRefreshDate = Date()
         await evaluateNotifications(sources: enabled, results: usageResults)
 
         // compute average remaining percentage across successful sources
