@@ -85,6 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshButton.update(loading: !loadingSources.isEmpty, lastRefresh: lastRefreshDate)
         refreshItem.view = refreshButton
         menu?.addItem(refreshItem)
+        menu?.addItem(withTitle: "Usage History...", action: #selector(showChart), keyEquivalent: "")
 
         menu?.addItem(NSMenuItem.separator())
         menu?.addItem(withTitle: "Settings...", action: #selector(showPreferences), keyEquivalent: ",")
@@ -94,6 +95,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func refreshClicked() {
         Task { await refresh() }
+    }
+
+    @objc func showChart() {
+        ChartWindowController.shared.configure(withSources: sources)
+        ChartWindowController.shared.showWindowAndBringToFront()
     }
 
     @objc func showPreferences() {
@@ -156,6 +162,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
         }
+
+        NotificationCenter.default.post(name: .aiDataRefreshed, object: nil)
     }
 
     /// Generate a template NSImage representing the brain with the bottom `percent` filled.

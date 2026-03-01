@@ -37,6 +37,37 @@ struct AmpSource: AISource {
         return output
     }
 
+    func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
+        let regenRatePerHour = 0.42 // Amp Free: +$0.42/hour
+        guard current.limit > 0 else { return nil }
+        let percentPerHour = (regenRatePerHour / current.limit) * 100
+        let currentPercent = current.percentRemaining
+
+        guard currentPercent < 100 else {
+            return ForecastResult(points: [], summary: "AMP: fully charged ✓")
+        }
+
+        let hoursToFull = (100 - currentPercent) / percentPerHour
+        let now = Date()
+        let fullDate = now.addingTimeInterval(hoursToFull * 3600)
+
+        let steps = min(100, max(10, Int(hoursToFull * 2)))
+        var points: [ForecastPoint] = []
+        for i in 0...steps {
+            let fraction = Double(i) / Double(steps)
+            let date = now.addingTimeInterval(fraction * hoursToFull * 3600)
+            let value = min(currentPercent + percentPerHour * fraction * hoursToFull, 100)
+            points.append(ForecastPoint(date: date, value: value))
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d 'at' h:mm a"
+        return ForecastResult(
+            points: points,
+            summary: "AMP: reaches 100% \(formatter.string(from: fullDate))"
+        )
+    }
+
     private func parseUsage(from output: String) -> UsageResult? {
         let pattern = #"Amp Free: \$([\d.]+)/\$([\d.]+) remaining"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }

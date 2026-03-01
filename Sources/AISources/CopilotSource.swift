@@ -34,6 +34,83 @@ struct CopilotSource: AISource {
         return UsageResult(remaining: Double(remaining), limit: Double(entitlement))
     }
 
+    func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
+        let now = Date()
+        let utc = TimeZone(secondsFromGMT: 0)!
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = utc
+
+        let yearMonth = calendar.dateComponents([.year, .month], from: now)
+        guard let cycleStart = calendar.date(from: DateComponents(
+            timeZone: utc,
+            year: yearMonth.year,
+            month: yearMonth.month,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0
+        )),
+        let resetDate = calendar.date(byAdding: .month, value: 1, to: cycleStart) else {
+            return nil
+        }
+
+        let currentPercent = min(max(current.percentRemaining, 0), 100)
+        let usedPercentSoFar = 100 - currentPercent
+        let elapsedSinceCycleStart = max(now.timeIntervalSince(cycleStart), 1)
+        let burnRatePerSecond = usedPercentSoFar > 0 ? (usedPercentSoFar / elapsedSinceCycleStart) : 0
+
+        let resetFormatter = DateFormatter()
+        resetFormatter.timeZone = utc
+        resetFormatter.dateFormat = "MMM d, HH:mm 'UTC'"
+
+        let preReset = resetDate.addingTimeInterval(-1)
+        var points: [ForecastPoint] = [ForecastPoint(date: now, value: currentPercent)]
+
+        let projectedPreReset: Double
+        if burnRatePerSecond > 0 {
+            let secondsToPreReset = max(0, preReset.timeIntervalSince(now))
+            let secondsToZero = currentPercent / burnRatePerSecond
+            let projectionHorizon = min(secondsToPreReset, secondsToZero)
+            let steps = max(12, min(80, Int(projectionHorizon / 3600)))
+
+            for index in 1...steps {
+                let fraction = Double(index) / Double(steps)
+                let date = now.addingTimeInterval(projectionHorizon * fraction)
+                let value = max(currentPercent - burnRatePerSecond * date.timeIntervalSince(now), 0)
+                points.append(ForecastPoint(date: date, value: value))
+            }
+
+            if secondsToZero < secondsToPreReset {
+                points.append(ForecastPoint(date: preReset, value: 0))
+            }
+
+            projectedPreReset = max(currentPercent - burnRatePerSecond * secondsToPreReset, 0)
+        } else {
+            projectedPreReset = currentPercent
+            if preReset > now {
+                points.append(ForecastPoint(date: preReset, value: currentPercent))
+            }
+        }
+
+        points.append(ForecastPoint(date: resetDate, value: projectedPreReset))
+        points.append(ForecastPoint(date: resetDate, value: 100))
+
+        let summary: String
+        if burnRatePerSecond > 0 {
+            let secondsToZero = currentPercent / burnRatePerSecond
+            let zeroDate = now.addingTimeInterval(secondsToZero)
+            if secondsToZero.isFinite, zeroDate > now, zeroDate < resetDate {
+                summary = "Copilot: projected 0% by \(resetFormatter.string(from: zeroDate)); resets \(resetFormatter.string(from: resetDate))"
+            } else {
+                summary = "Copilot: projected \(String(format: "%.0f", projectedPreReset))% at reset (\(resetFormatter.string(from: resetDate)))"
+            }
+        } else {
+            summary = "Copilot: resets \(resetFormatter.string(from: resetDate))"
+        }
+
+        return ForecastResult(points: points, summary: summary)
+    }
+
     private func getGhAuthToken() throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/gh")

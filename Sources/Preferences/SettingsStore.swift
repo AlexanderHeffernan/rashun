@@ -128,7 +128,6 @@ final class SettingsStore {
 
     func clearRuleState(sourceName: String, ruleId: String) {
         notificationState.removeValue(forKey: ruleStateKey(sourceName: sourceName, ruleId: ruleId))
-        NotificationHistoryStore.shared.clearHistory(for: sourceName)
     }
 
     func ruleInputValue(sourceName: String, ruleId: String, inputId: String, defaultValue: Double) -> Double {
@@ -153,6 +152,7 @@ final class SettingsStore {
 
 extension Notification.Name {
     static let aiSettingsChanged = Notification.Name("ai.settings.changed")
+    static let aiDataRefreshed = Notification.Name("ai.data.refreshed")
 }
 
 struct NotificationRuleSetting: Codable {

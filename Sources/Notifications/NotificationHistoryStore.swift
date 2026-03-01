@@ -5,7 +5,7 @@ final class NotificationHistoryStore {
     static let shared = NotificationHistoryStore()
     private init() { load() }
 
-    private let maxSnapshots = 120
+    private let maxSnapshots = 10_000
     private let userDefaultsKey = "ai.notificationHistory.v1"
     private var historyBySource: [String: [UsageSnapshot]] = [:]
 
