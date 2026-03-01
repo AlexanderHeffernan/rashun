@@ -13,6 +13,11 @@ final class NotificationHistoryStore {
         historyBySource[sourceName] ?? []
     }
 
+    func clearHistory(for sourceName: String) {
+        historyBySource.removeValue(forKey: sourceName)
+        save()
+    }
+
     func append(sourceName: String, usage: UsageResult) {
         var history = historyBySource[sourceName] ?? []
         history.append(UsageSnapshot(timestamp: Date(), usage: usage))
