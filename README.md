@@ -151,3 +151,16 @@ Some ideas for contributions:
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## TODO
+- [ ] Add app icon
+- [ ] Add launch-at-login support
+- [ ] Set up a testing framework and add unit tests
+- [ ] Set up a CI/CD pipeline (GitHub Actions)
+- [ ] Add an easier install path (no clone/build required), with optional auto-update support
+- [ ] Evaluate AppKit vs SwiftUI trade-offs (AppKit currently gives better menu bar/notification control)
+- [ ] Add macOS widgets
+- [ ] Improve data management (export/import usage data, delete stored data)
+- [ ] Improve error handling and user feedback (e.g., warning icon or alert when usage fetch fails)
+- [ ] Add source health checks when enabling a source
+- [ ] Final cleanup and code documentation
