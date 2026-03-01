@@ -65,7 +65,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let display = loadingSources.contains(source.name)
                     ? loadingIndicator
                     : (results[source.name] ?? "N/A")
-                menu?.addItem(withTitle: "\(source.name) Remaining: \(display)", action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+                let label = NSTextField(labelWithString: "\(source.name) Remaining: \(display)")
+                label.font = NSFont.menuFont(ofSize: 0)
+                label.textColor = .labelColor
+                label.sizeToFit()
+                let container = NSView(frame: NSRect(x: 0, y: 0, width: label.frame.width + 28, height: label.frame.height + 4))
+                label.frame.origin = NSPoint(x: 14, y: 2)
+                container.addSubview(label)
+                item.view = container
+                menu?.addItem(item)
             }
         }
         menu?.addItem(NSMenuItem.separator())
