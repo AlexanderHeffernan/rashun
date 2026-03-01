@@ -1,6 +1,6 @@
 import Foundation
 
-struct UsageResult {
+struct UsageResult: Codable {
     let remaining: Double
     let limit: Double
 
@@ -20,8 +20,14 @@ protocol AISource: Sendable {
     /// Human-readable requirements or hints for using this source (shown in Preferences)
     var requirements: String { get }
     func fetchUsage() async throws -> UsageResult
+    var notificationDefinitions: [NotificationDefinition] { get }
+    var customNotificationDefinitions: [NotificationDefinition] { get }
 }
 
 extension AISource {
     var requirements: String { "" }
+    var customNotificationDefinitions: [NotificationDefinition] { [] }
+    var notificationDefinitions: [NotificationDefinition] {
+        NotificationDefinitions.generic(sourceName: name) + customNotificationDefinitions
+    }
 }

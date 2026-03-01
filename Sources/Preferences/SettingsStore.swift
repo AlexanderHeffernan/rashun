@@ -6,18 +6,48 @@ final class SettingsStore {
     private init() { load() }
 
     private let userDefaultsKey = "ai.sourceSettings.v1"
+    private let notificationDefaultsKey = "ai.notificationSettings.v1"
+    private let notificationStateKey = "ai.notificationState.v1"
+    private let pollIntervalKey = "ai.pollIntervalSeconds.v1"
     private var enabledMap: [String: Bool] = [:]
+    private var notificationSettings: [String: [NotificationRuleSetting]] = [:]
+    private var notificationState: [String: NotificationRuleState] = [:]
+
+    private(set) var pollIntervalSeconds: TimeInterval = 120
 
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else { return }
         if let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
             enabledMap = decoded
         }
+
+        if let settingsData = UserDefaults.standard.data(forKey: notificationDefaultsKey),
+           let decodedSettings = try? JSONDecoder().decode([String: [NotificationRuleSetting]].self, from: settingsData) {
+            notificationSettings = decodedSettings
+        }
+
+        if let stateData = UserDefaults.standard.data(forKey: notificationStateKey),
+           let decodedState = try? JSONDecoder().decode([String: NotificationRuleState].self, from: stateData) {
+            notificationState = decodedState
+        }
+
+        let poll = UserDefaults.standard.double(forKey: pollIntervalKey)
+        if poll > 0 {
+            pollIntervalSeconds = poll
+        }
     }
 
     private func save() {
         if let data = try? JSONEncoder().encode(enabledMap) {
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
+        }
+
+        if let data = try? JSONEncoder().encode(notificationSettings) {
+            UserDefaults.standard.set(data, forKey: notificationDefaultsKey)
+        }
+
+        if let data = try? JSONEncoder().encode(notificationState) {
+            UserDefaults.standard.set(data, forKey: notificationStateKey)
         }
     }
 
@@ -38,8 +68,99 @@ final class SettingsStore {
         }
         save()
     }
+
+    func pollInterval() -> TimeInterval {
+        pollIntervalSeconds
+    }
+
+    func setPollIntervalSeconds(_ seconds: TimeInterval) {
+        pollIntervalSeconds = max(30, seconds)
+        UserDefaults.standard.set(pollIntervalSeconds, forKey: pollIntervalKey)
+        NotificationCenter.default.post(name: .aiSettingsChanged, object: nil)
+    }
+
+    func ruleSettings(for sourceName: String) -> [NotificationRuleSetting] {
+        notificationSettings[sourceName] ?? []
+    }
+
+    func ensureNotificationRules(source: AISource) {
+        let current = notificationSettings[source.name] ?? []
+        var map: [String: NotificationRuleSetting] = [:]
+        for setting in current {
+            map[setting.ruleId] = setting
+        }
+
+        for definition in source.notificationDefinitions {
+            if map[definition.id] == nil {
+                var values: [String: Double] = [:]
+                for input in definition.inputs {
+                    values[input.id] = input.defaultValue
+                }
+                map[definition.id] = NotificationRuleSetting(ruleId: definition.id, isEnabled: false, inputValues: values)
+            }
+        }
+
+        let merged = source.notificationDefinitions.compactMap { map[$0.id] }
+        notificationSettings[source.name] = merged
+        save()
+    }
+
+    func setRuleEnabled(_ enabled: Bool, sourceName: String, ruleId: String) {
+        var rules = notificationSettings[sourceName] ?? []
+        for idx in rules.indices where rules[idx].ruleId == ruleId {
+            rules[idx].isEnabled = enabled
+        }
+        notificationSettings[sourceName] = rules
+        clearRuleState(sourceName: sourceName, ruleId: ruleId)
+        save()
+        NotificationCenter.default.post(name: .aiSettingsChanged, object: nil)
+    }
+
+    func setRuleValue(_ value: Double, sourceName: String, ruleId: String, inputId: String) {
+        var rules = notificationSettings[sourceName] ?? []
+        for idx in rules.indices where rules[idx].ruleId == ruleId {
+            rules[idx].inputValues[inputId] = value
+        }
+        notificationSettings[sourceName] = rules
+        clearRuleState(sourceName: sourceName, ruleId: ruleId)
+        save()
+    }
+
+    func clearRuleState(sourceName: String, ruleId: String) {
+        notificationState.removeValue(forKey: ruleStateKey(sourceName: sourceName, ruleId: ruleId))
+    }
+
+    func ruleInputValue(sourceName: String, ruleId: String, inputId: String, defaultValue: Double) -> Double {
+        guard let rules = notificationSettings[sourceName] else { return defaultValue }
+        guard let rule = rules.first(where: { $0.ruleId == ruleId }) else { return defaultValue }
+        return rule.inputValues[inputId] ?? defaultValue
+    }
+
+    func ruleStateKey(sourceName: String, ruleId: String) -> String {
+        "\(sourceName):\(ruleId)"
+    }
+
+    func ruleState(sourceName: String, ruleId: String) -> NotificationRuleState? {
+        notificationState[ruleStateKey(sourceName: sourceName, ruleId: ruleId)]
+    }
+
+    func setRuleState(_ state: NotificationRuleState, sourceName: String, ruleId: String) {
+        notificationState[ruleStateKey(sourceName: sourceName, ruleId: ruleId)] = state
+        save()
+    }
 }
 
 extension Notification.Name {
     static let aiSettingsChanged = Notification.Name("ai.settings.changed")
+}
+
+struct NotificationRuleSetting: Codable {
+    var ruleId: String
+    var isEnabled: Bool
+    var inputValues: [String: Double]
+}
+
+struct NotificationRuleState: Codable {
+    var lastFiredAt: Date?
+    var lastFiredCycleKey: String?
 }

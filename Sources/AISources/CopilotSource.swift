@@ -4,6 +4,10 @@ struct CopilotSource: AISource {
     let name = "Copilot"
     let requirements = "Requires GitHub CLI 'gh' configured and authenticated (used to fetch auth token)."
 
+    var customNotificationDefinitions: [NotificationDefinition] {
+        [behindPaceRule()]
+    }
+
     func fetchUsage() async throws -> UsageResult {
         let token = try getGhAuthToken()
 
@@ -50,5 +54,51 @@ struct CopilotSource: AISource {
         }
 
         return token
+    }
+
+    private func behindPaceRule() -> NotificationDefinition {
+        NotificationDefinition(
+            id: "behindPace",
+            title: "Monthly pacing alert",
+            detail: "Notifies if your usage is on track to run out before the month ends. Tolerance sets how many extra percentage points over the ideal pace are allowed.",
+            inputs: [
+                NotificationInputSpec(
+                    id: "drift",
+                    label: "Tolerance",
+                    unit: "%",
+                    defaultValue: 5,
+                    min: 0,
+                    max: 50,
+                    step: 1
+                )
+            ],
+            evaluate: { context in
+                let drift = context.value(for: "drift", defaultValue: 5)
+
+                let calendar = Calendar.current
+                let now = Date()
+                let day = calendar.component(.day, from: now)
+                guard let range = calendar.range(of: .day, in: .month, for: now) else { return nil }
+                let daysInMonth = range.count
+
+                let used = 100 - context.current.percentRemaining
+                let expectedUsed = 100 * (Double(day) / Double(daysInMonth))
+
+                let isBehind = used > (expectedUsed + drift)
+                let wasBehind: Bool
+                if let prev = context.previous?.usage.percentRemaining {
+                    let prevUsed = 100 - prev
+                    wasBehind = prevUsed > (expectedUsed + drift)
+                } else {
+                    wasBehind = false
+                }
+
+                guard isBehind, !wasBehind else { return nil }
+
+                let title = "Copilot pacing alert"
+                let body = "You're using Copilot faster than your monthly allowance. \(String(format: "%.0f", used))% used by day \(day)/\(daysInMonth) — ideally you'd be at \(String(format: "%.0f", expectedUsed))%."
+                return NotificationEvent(title: title, body: body, cooldownSeconds: 86400, cycleKey: nil)
+            }
+        )
     }
 }

@@ -5,8 +5,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem?
     var menu: NSMenu?
     var pollTimer: Timer?
-
-    let pollInterval: TimeInterval = 600 // seconds (10 minutes)
     let loadingIndicator = "⏳"
 
     var sources: [AISource] { allSources }
@@ -43,7 +41,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             await refresh()
         }
 
-        pollTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
+        pollTimer = Timer.scheduledTimer(withTimeInterval: SettingsStore.shared.pollInterval(), repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in await self.refresh() }
         }
@@ -88,6 +86,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateMenu()
 
         var percentValues: [Double] = []
+        var usageResults: [String: UsageResult] = [:]
 
         await withTaskGroup(of: (String, UsageResult?).self) { group in
             for source in enabled {
@@ -100,6 +99,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             for await (name, res) in group {
                 if let usage = res {
                     results[name] = usage.formatted
+                    usageResults[name] = usage
                     let p = min(max(usage.percentRemaining, 0), 100)
                     percentValues.append(p)
                 } else {
@@ -109,6 +109,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 updateMenu()
             }
         }
+
+        await evaluateNotifications(sources: enabled, results: usageResults)
 
         // compute average remaining percentage across successful sources
         if percentValues.isEmpty {
@@ -174,6 +176,61 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // prune results for disabled sources
         results = results.filter { enabled.contains($0.key) }
         updateMenu()
+
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: SettingsStore.shared.pollInterval(), repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in await self.refresh() }
+        }
+    }
+
+    private func evaluateNotifications(sources: [AISource], results: [String: UsageResult]) async {
+        for source in sources {
+            guard let current = results[source.name] else { continue }
+            SettingsStore.shared.ensureNotificationRules(source: source)
+            let rules = SettingsStore.shared.ruleSettings(for: source.name)
+            let history = NotificationHistoryStore.shared.history(for: source.name)
+            let previous = history.last
+
+            for rule in rules where rule.isEnabled {
+                guard let definition = source.notificationDefinitions.first(where: { $0.id == rule.ruleId }) else { continue }
+                let ruleId = rule.ruleId
+                let valueProvider: (String, Double) -> Double = { inputId, defaultValue in
+                    SettingsStore.shared.ruleInputValue(sourceName: source.name, ruleId: ruleId, inputId: inputId, defaultValue: defaultValue)
+                }
+
+                let ctx = NotificationContext(
+                    sourceName: source.name,
+                    current: current,
+                    previous: previous,
+                    history: history,
+                    inputValue: valueProvider
+                )
+
+                guard let event = definition.evaluate(ctx) else { continue }
+
+                let state = SettingsStore.shared.ruleState(sourceName: source.name, ruleId: ruleId)
+                if shouldSend(event: event, state: state) {
+                    NotificationManager.shared.sendNotification(title: event.title, body: event.body)
+                    let newState = NotificationRuleState(lastFiredAt: Date(), lastFiredCycleKey: event.cycleKey)
+                    SettingsStore.shared.setRuleState(newState, sourceName: source.name, ruleId: ruleId)
+                }
+            }
+
+            NotificationHistoryStore.shared.append(sourceName: source.name, usage: current)
+        }
+    }
+
+    private func shouldSend(event: NotificationEvent, state: NotificationRuleState?) -> Bool {
+        if let cycleKey = event.cycleKey, state?.lastFiredCycleKey == cycleKey {
+            return false
+        }
+        if let cooldown = event.cooldownSeconds, let last = state?.lastFiredAt {
+            if Date().timeIntervalSince(last) < cooldown {
+                return false
+            }
+        }
+        return true
     }
 }
 
