@@ -1,4 +1,5 @@
 import Cocoa
+import ServiceManagement
 
 @MainActor
 final class PreferencesWindowController: NSWindowController {
@@ -62,6 +63,16 @@ final class PreferencesWindowController: NSWindowController {
         intro.font = NSFont.systemFont(ofSize: 12)
         intro.textColor = .secondaryLabelColor
         stack.addArrangedSubview(intro)
+
+        if #available(macOS 13.0, *) {
+            let generalHeader = NSTextField(labelWithString: "General")
+            generalHeader.font = NSFont.boldSystemFont(ofSize: 14)
+            stack.addArrangedSubview(generalHeader)
+
+            let launchCheckbox = NSButton(checkboxWithTitle: "Launch at Login", target: self, action: #selector(launchAtLoginToggled(_:)))
+            launchCheckbox.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
+            stack.addArrangedSubview(launchCheckbox)
+        }
 
         let header = NSTextField(labelWithString: "Sources")
         header.font = NSFont.boldSystemFont(ofSize: 14)
@@ -270,6 +281,19 @@ final class PreferencesWindowController: NSWindowController {
             expandedSources.remove(sourceName)
         }
         configure(withSources: currentSources)
+    }
+
+    @available(macOS 13.0, *)
+    @objc private func launchAtLoginToggled(_ sender: NSButton) {
+        do {
+            if sender.state == .on {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            sender.state = (sender.state == .on) ? .off : .on
+        }
     }
 
     @objc private func settingsChanged(_ note: Notification) {

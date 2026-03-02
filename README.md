@@ -154,7 +154,8 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## TODO
 - [X] Add app icon
-- [ ] Add launch-at-login support
+- [X] Add launch-at-login support
+- [ ] Need to fix start-up alert (“Rashun.app” would like to access files on a network volume.)
 - [ ] Set up a testing framework and add unit tests
 - [ ] Set up a CI/CD pipeline (GitHub Actions)
 - [ ] Add an easier install path (no clone/build required), with optional auto-update support
@@ -163,4 +164,5 @@ This project is licensed under the [MIT License](LICENSE).
 - [ ] Improve data management (export/import usage data, delete stored data)
 - [ ] Improve error handling and user feedback (e.g., warning icon or alert when usage fetch fails)
 - [ ] Add source health checks when enabling a source
+- [ ] Do we need improved handling of my complex AI Sources with multiple usage quotas?
 - [ ] Final cleanup and code documentation
