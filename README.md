@@ -173,7 +173,7 @@ This project is licensed under the [MIT License](LICENSE).
 - [X] Set up a testing framework and add unit tests
 - [X] Set up a CI/CD pipeline (GitHub Actions)
 - [X] Add an easier install path (no clone/build required), with optional auto-update support
-- [X] Auto-update support
+- [X] Auto-update support 
 - [ ] Evaluate AppKit vs SwiftUI trade-offs (AppKit currently gives better menu bar/notification control)
 - [ ] Add macOS widgets
 - [ ] Improve data management (export/import usage data, delete stored data)
