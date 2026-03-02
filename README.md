@@ -155,7 +155,7 @@ This project is licensed under the [MIT License](LICENSE).
 ## TODO
 - [X] Add app icon
 - [X] Add launch-at-login support
-- [ ] Need to fix start-up alert (“Rashun.app” would like to access files on a network volume.)
+- [X] Need to fix start-up alert (“Rashun.app” would like to access files on a network volume.) – Likely fix is just to move the app bundle to /Applications instead of running from the project directory
 - [ ] Set up a testing framework and add unit tests
 - [ ] Set up a CI/CD pipeline (GitHub Actions)
 - [ ] Add an easier install path (no clone/build required), with optional auto-update support
