@@ -15,7 +15,19 @@ jobs:
       - name: Setup Swift
         uses: swift-actions/setup-swift@v3
         with:
-          swift-version: "6.2"
+          swift-version: "6.2.4"
+
+      - name: Generate source list
+        run: |
+          SOURCES_FILE="Sources/GeneratedSourceList.swift"
+          echo "// Auto-generated — do not edit manually." > "$SOURCES_FILE"
+          echo "let allSources: [AISource] = [" >> "$SOURCES_FILE"
+          for f in Sources/AISources/*Source.swift; do
+              [ "$(basename "$f")" = "AISource.swift" ] && continue
+              struct_name=$(grep -o 'struct [A-Za-z_]*: AISource' "$f" | head -1 | awk '{print $2}' | cut -d: -f1)
+              [ -n "$struct_name" ] && echo "    ${struct_name}()," >> "$SOURCES_FILE"
+          done
+          echo "]" >> "$SOURCES_FILE"
 
       - name: Run tests
         run: swift test
