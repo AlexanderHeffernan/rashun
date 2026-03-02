@@ -4,6 +4,10 @@
 
 If you're a student (or anyone) relying on free-tier AI tools like [Amp](https://ampcode.com) and [GitHub Copilot](https://github.com/features/copilot), you know the pain: you're deep in a project, it's day 22, and suddenly you've hit your limit. Rashun sits quietly in your menu bar, shows you how much you have left at a glance, and nudges you when you're burning through tokens too fast.
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexanderheffernan/rashun/main/install.sh | bash
+```
+
 ---
 
 ## Features
@@ -39,6 +43,18 @@ Rashun polls each enabled source on a timer. For each source, it fetches the cur
 
 ## Installation
 
+### Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexanderheffernan/rashun/main/install.sh | bash
+```
+
+This downloads the latest build, installs it to `/Applications`, and clears macOS quarantine flags. To update, just run the same command again.
+
+### Build from Source
+
+If you prefer to build from source (requires Swift 6.2+):
+
 ```bash
 git clone https://github.com/alexanderheffernan/rashun.git
 cd rashun
@@ -51,8 +67,6 @@ chmod +x build.sh
 2. Build a release binary via `swift build`
 3. Package it into `Rashun.app` with proper code signing
 4. Launch the app
-
-After the first build, `Rashun.app` is in the project root. You can move it to `/Applications` if you like — just re-run `build.sh` after any updates.
 
 ---
 
@@ -156,9 +170,9 @@ This project is licensed under the [MIT License](LICENSE).
 - [X] Add app icon
 - [X] Add launch-at-login support
 - [X] Need to fix start-up alert (“Rashun.app” would like to access files on a network volume.) – Likely fix is just to move the app bundle to /Applications instead of running from the project directory
-- [ ] Set up a testing framework and add unit tests
-- [ ] Set up a CI/CD pipeline (GitHub Actions)
-- [ ] Add an easier install path (no clone/build required), with optional auto-update support
+- [X] Set up a testing framework and add unit tests
+- [X] Set up a CI/CD pipeline (GitHub Actions)
+- [X] Add an easier install path (no clone/build required), with optional auto-update support
 - [ ] Evaluate AppKit vs SwiftUI trade-offs (AppKit currently gives better menu bar/notification control)
 - [ ] Add macOS widgets
 - [ ] Improve data management (export/import usage data, delete stored data)

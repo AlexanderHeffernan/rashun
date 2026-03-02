@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Auto-generate the source list from Sources/AISources/*.swift
 SOURCES_FILE="Sources/GeneratedSourceList.swift"
@@ -12,13 +13,30 @@ for f in Sources/AISources/*Source.swift; do
 done
 echo "]" >> "$SOURCES_FILE"
 
+# If --test flag is passed, stop here (tests only need the generated source list)
+if [ "${1:-}" = "--test" ]; then
+    echo "Source list generated. Ready for testing."
+    exit 0
+fi
+
+# Build release binary
 swift build -c release
+
+# Package app bundle
 rm -rf Rashun.app
 mkdir -p Rashun.app/Contents/{MacOS,Resources}
 cp .build/release/Rashun Rashun.app/Contents/MacOS/Rashun
-cp Info.plist Rashun.app/Contents/ # (assuming you saved Info.plist in root)
+cp Info.plist Rashun.app/Contents/
 cp AppIcon.icns Rashun.app/Contents/Resources/
-# Re-sign the amp binary to avoid network volume alert when spawning it
-codesign --force --sign - "$HOME/.amp/bin/amp" 2>/dev/null || true
+
+# Code sign
 codesign --force --deep --sign - --entitlements Rashun.entitlements Rashun.app
-open Rashun.app
+
+echo "Build complete: Rashun.app"
+
+# If --open flag is passed, quit the running app (if any) and open the new build
+if [ "${1:-}" = "--open" ]; then
+    osascript -e 'quit app "Rashun"' 2>/dev/null || true
+    sleep 0.5
+    open Rashun.app
+fi
