@@ -13,7 +13,7 @@ struct DataTabView: View {
         .onAppear {
             syncSources()
         }
-        .onChange(of: model.sources.map(\.name)) { _, _ in
+        .onChange(of: model.sources.map { "\($0.name)|\($0.metrics.map(\.id).joined(separator: ","))|\($0.metrics.map(\.title).joined(separator: ","))" }) { _, _ in
             syncSources()
         }
         .alert("Delete Usage History?", isPresented: $dataModel.showDeleteConfirmation) {
@@ -146,6 +146,6 @@ struct DataTabView: View {
     }
 
     private func syncSources() {
-        dataModel.configure(sourceNames: model.sources.map(\.name))
+        dataModel.configure(sources: model.sources)
     }
 }

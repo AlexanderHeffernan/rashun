@@ -35,13 +35,14 @@ final class DataTabViewModel: ObservableObject {
     @Published private(set) var deleteStatusIsError = false
 
     private var configuredSourceNames: Set<String> = []
+    private var targetKeysByDisplayName: [String: Set<String>] = [:]
     private var pendingImportURL: URL?
     private var pendingImportHistory: [String: [UsageSnapshot]]?
 
-    func configure(sourceNames: [String]) {
-        configuredSourceNames = Set(sourceNames)
-        let known = configuredSourceNames.union(NotificationHistoryStore.shared.sourceNamesWithHistory())
-        updateAvailableSources(knownSourceNames: known)
+    func configure(sources: [AISource]) {
+        configuredSourceNames = Set(sources.map(\.name))
+        buildDeleteTargets(sources: sources, historyNames: NotificationHistoryStore.shared.sourceNamesWithHistory())
+        updateAvailableSources()
         stats = NotificationHistoryStore.shared.stats()
     }
 
@@ -163,14 +164,18 @@ final class DataTabViewModel: ObservableObject {
     }
 
     func confirmDelete() {
-        let sourceName = deleteScope == .singleSource ? selectedSourceName : nil
         let removed: Int
 
         switch deleteMode {
         case .deleteAll:
-            if let sourceName {
-                removed = NotificationHistoryStore.shared.countSnapshots(sourceName: sourceName)
-                NotificationHistoryStore.shared.clearHistory(for: sourceName)
+            if deleteScope == .singleSource {
+                let targetKeys = selectedSourceTargetKeys()
+                removed = targetKeys.reduce(0) { partial, key in
+                    partial + NotificationHistoryStore.shared.countSnapshots(sourceName: key)
+                }
+                for key in targetKeys {
+                    NotificationHistoryStore.shared.clearHistory(for: key)
+                }
             } else {
                 removed = NotificationHistoryStore.shared.countSnapshots()
                 NotificationHistoryStore.shared.clearAllHistory()
@@ -180,7 +185,13 @@ final class DataTabViewModel: ObservableObject {
                 setDeleteStatus("Could not calculate cutoff date.", isError: true)
                 return
             }
-            removed = NotificationHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: sourceName)
+            if deleteScope == .singleSource {
+                removed = selectedSourceTargetKeys().reduce(0) { partial, key in
+                    partial + NotificationHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: key)
+                }
+            } else {
+                removed = NotificationHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: nil)
+            }
         }
 
         refreshStats()
@@ -189,13 +200,22 @@ final class DataTabViewModel: ObservableObject {
     }
 
     private func pendingDeleteCount() -> Int? {
-        let sourceName = deleteScope == .singleSource ? selectedSourceName : nil
         switch deleteMode {
         case .deleteAll:
-            return NotificationHistoryStore.shared.countSnapshots(sourceName: sourceName)
+            if deleteScope == .singleSource {
+                return selectedSourceTargetKeys().reduce(0) { partial, key in
+                    partial + NotificationHistoryStore.shared.countSnapshots(sourceName: key)
+                }
+            }
+            return NotificationHistoryStore.shared.countSnapshots()
         case .olderThanDate, .keepLastDays:
             guard let cutoff = cutoffDate() else { return nil }
-            return NotificationHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: sourceName)
+            if deleteScope == .singleSource {
+                return selectedSourceTargetKeys().reduce(0) { partial, key in
+                    partial + NotificationHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: key)
+                }
+            }
+            return NotificationHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: nil)
         }
     }
 
@@ -213,8 +233,7 @@ final class DataTabViewModel: ObservableObject {
 
     private func refreshStats() {
         stats = NotificationHistoryStore.shared.stats()
-        let known = configuredSourceNames.union(NotificationHistoryStore.shared.sourceNamesWithHistory())
-        updateAvailableSources(knownSourceNames: known)
+        updateAvailableSources()
     }
 
     private func notifyDataChanged() {
@@ -257,11 +276,43 @@ final class DataTabViewModel: ObservableObject {
         return "\(Self.displayFormatter.string(from: oldest)) to \(Self.displayFormatter.string(from: newest))"
     }
 
-    private func updateAvailableSources(knownSourceNames: Set<String>) {
-        availableSourceNames = knownSourceNames.sorted()
+    private func updateAvailableSources() {
+        availableSourceNames = targetKeysByDisplayName.keys.sorted()
         if !availableSourceNames.contains(selectedSourceName) {
             selectedSourceName = availableSourceNames.first ?? ""
         }
+    }
+
+    private func selectedSourceTargetKeys() -> Set<String> {
+        targetKeysByDisplayName[selectedSourceName] ?? [selectedSourceName]
+    }
+
+    private func buildDeleteTargets(sources: [AISource], historyNames: [String]) {
+        var displayToTargets: [String: Set<String>] = [:]
+        var knownTargetNames: Set<String> = []
+
+        for source in sources {
+            if source.metrics.count <= 1 {
+                displayToTargets[source.name] = [source.name]
+                knownTargetNames.insert(source.name)
+                continue
+            }
+
+            for metric in source.metrics {
+                let displayName = "\(source.name) - \(metric.title)"
+                let metricScopeName = "\(source.name)::\(metric.id)"
+                displayToTargets[displayName] = [displayName, metricScopeName]
+                knownTargetNames.insert(displayName)
+                knownTargetNames.insert(metricScopeName)
+            }
+        }
+
+        // Include orphaned history keys so historical data from removed/renamed sources is still deletable.
+        for historyName in historyNames where !knownTargetNames.contains(historyName) {
+            displayToTargets[historyName] = [historyName]
+        }
+
+        targetKeysByDisplayName = displayToTargets
     }
 
     private static let displayFormatter: DateFormatter = {
