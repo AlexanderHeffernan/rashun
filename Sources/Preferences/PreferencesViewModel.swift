@@ -14,6 +14,9 @@ final class PreferencesViewModel: ObservableObject {
     @Published private(set) var updateStatusText = ""
     @Published private(set) var updateStatusIsPositive = false
     @Published var launchAtLoginErrorMessage: String?
+    @Published var sourceHealthCheckErrorMessage: String?
+    @Published private(set) var sourceHealthCheckInProgress = false
+    @Published private(set) var healthCheckSourceName: String?
 
     private var settings: SettingsStore { .shared }
     private var updates: UpdateManager { .shared }
@@ -46,12 +49,29 @@ final class PreferencesViewModel: ObservableObject {
 
     func confirmEnableSource() {
         guard let source = pendingEnableSource else { return }
-        settings.setEnabled(true, for: source.name)
         pendingEnableSource = nil
+        sourceHealthCheckInProgress = true
+        Task { @MainActor [weak self] in
+            await self?.runEnableHealthCheck(for: source)
+        }
     }
 
     func cancelEnableSource() { pendingEnableSource = nil }
     func isSourceExpanded(_ sourceName: String) -> Bool { expandedSources.contains(sourceName) }
+    func isSourceHealthCheckInProgress(_ sourceName: String) -> Bool {
+        sourceHealthCheckInProgress && healthCheckSourceName == sourceName
+    }
+    func sourceHasWarning(_ sourceName: String) -> Bool {
+        SourceHealthStore.shared.health(for: sourceName)?.shortErrorMessage != nil
+    }
+
+    func sourceWarningSummary(_ sourceName: String) -> String? {
+        SourceHealthStore.shared.health(for: sourceName)?.shortErrorMessage
+    }
+
+    func sourceWarningDetail(_ sourceName: String) -> String? {
+        SourceHealthStore.shared.health(for: sourceName)?.detailedErrorMessage
+    }
 
     func toggleNotificationsSection(_ sourceName: String) {
         if !expandedSources.insert(sourceName).inserted { expandedSources.remove(sourceName) }
@@ -157,10 +177,30 @@ final class PreferencesViewModel: ObservableObject {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handleSettingsChanged), name: .aiSettingsChanged, object: nil)
         center.addObserver(self, selector: #selector(handleUpdateStatusChanged), name: .updateStatusChanged, object: nil)
+        center.addObserver(self, selector: #selector(handleSourceHealthChanged), name: .aiSourceHealthChanged, object: nil)
     }
 
     @objc private func handleSettingsChanged() { pollMinutesText = formattedPollMinutes() }
     @objc private func handleUpdateStatusChanged() { refreshUpdateStatus() }
+    @objc private func handleSourceHealthChanged() { objectWillChange.send() }
+
+    private func runEnableHealthCheck(for source: AISource) async {
+        healthCheckSourceName = source.name
+        defer {
+            sourceHealthCheckInProgress = false
+            healthCheckSourceName = nil
+        }
+        do {
+            let usage = try await source.fetchUsage()
+            SourceHealthStore.shared.recordSuccess(sourceName: source.name, usage: usage)
+            settings.setEnabled(true, for: source.name)
+        } catch {
+            let presentation = source.mapFetchError(error)
+            SourceHealthStore.shared.recordFailure(sourceName: source.name, presentation: presentation)
+            sourceHealthCheckErrorMessage = "Could not enable \(source.name).\n\n\(presentation.detailedMessage)"
+            settings.setEnabled(false, for: source.name)
+        }
+    }
 
     private func seedRuleInputDrafts(for source: AISource) {
         for definition in source.notificationDefinitions {

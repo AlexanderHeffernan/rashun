@@ -54,6 +54,17 @@ struct PreferencesRootView: View {
         } message: {
             Text(model.launchAtLoginErrorMessage ?? "")
         }
+        .alert(
+            "Source Health Check Failed",
+            isPresented: Binding(
+                get: { model.sourceHealthCheckErrorMessage != nil },
+                set: { if !$0 { model.sourceHealthCheckErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { model.sourceHealthCheckErrorMessage = nil }
+        } message: {
+            Text(model.sourceHealthCheckErrorMessage ?? "")
+        }
     }
 
     private var background: some View {

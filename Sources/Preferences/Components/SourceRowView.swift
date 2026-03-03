@@ -8,6 +8,10 @@ struct SourceRowView: View {
         let isEnabled = model.isSourceEnabled(source.name)
         let isExpanded = model.isSourceExpanded(source.name)
         let hasNotifications = !source.notificationDefinitions.isEmpty
+        let isCheckingHealth = model.isSourceHealthCheckInProgress(source.name)
+        let warningSummary = model.sourceWarningSummary(source.name)
+        let warningDetail = model.sourceWarningDetail(source.name)
+        let hasWarning = warningSummary != nil
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
@@ -16,8 +20,22 @@ struct SourceRowView: View {
                     set: { model.sourceToggleChanged(source, enabled: $0) }
                 ))
                 .toggleStyle(.checkbox)
+                .disabled(isCheckingHealth)
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .foregroundColor(BrandPalette.textPrimary)
+
+                if isCheckingHealth {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                        .tint(BrandPalette.accent)
+                }
+
+                if hasWarning {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(BrandPalette.warning)
+                }
 
                 Spacer(minLength: 0)
 
@@ -45,6 +63,35 @@ struct SourceRowView: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+
+            if let warningDetail {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(BrandPalette.warning)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let warningSummary {
+                            Text(warningSummary)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(BrandPalette.warning)
+                        }
+                        Text(warningDetail)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(BrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(BrandPalette.warning.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(BrandPalette.warning.opacity(0.28), lineWidth: 1)
+                        )
+                )
             }
 
             if isEnabled, isExpanded {

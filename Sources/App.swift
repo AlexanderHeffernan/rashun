@@ -35,6 +35,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged(_:)), name: .aiSettingsChanged, object: nil)
 
         SettingsStore.shared.ensureSources(sources.map { $0.name })
+        for source in sources {
+            if let usage = SourceHealthStore.shared.health(for: source.name)?.lastSuccessfulUsage {
+                results[source.name] = usage.formatted
+            }
+        }
         updateMenu()
 
         Task {
@@ -63,12 +68,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if enabled.isEmpty {
             menu?.addItem(withTitle: "No sources enabled — open Preferences...", action: #selector(showPreferences), keyEquivalent: "")
         } else {
+            var hasWarnings = false
             for source in enabled {
+                let health = SourceHealthStore.shared.health(for: source.name)
                 let display = loadingSources.contains(source.name)
                     ? loadingIndicator
-                    : (results[source.name] ?? "N/A")
+                    : (results[source.name] ?? health?.lastSuccessfulUsage?.formatted ?? "N/A")
+                let hasWarning = !loadingSources.contains(source.name) && health?.shortErrorMessage != nil
+                if hasWarning { hasWarnings = true }
+                let warningSuffix = hasWarning ? "  ⚠" : ""
                 let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-                let label = NSTextField(labelWithString: "\(source.name) Remaining: \(display)")
+                let label = NSTextField(labelWithString: "\(source.name) Remaining: \(display)\(warningSuffix)")
                 label.font = NSFont.menuFont(ofSize: 0)
                 label.textColor = .labelColor
                 label.sizeToFit()
@@ -77,6 +87,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 container.addSubview(label)
                 item.view = container
                 menu?.addItem(item)
+            }
+            if hasWarnings {
+                let hint = NSMenuItem(
+                    title: "⚠ See Preferences > Sources",
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                hint.isEnabled = false
+                menu?.addItem(hint)
             }
         }
         menu?.addItem(NSMenuItem.separator())
@@ -133,11 +152,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 switch result {
                 case let .success(usage):
                     results[name] = usage.formatted
+                    SourceHealthStore.shared.recordSuccess(sourceName: name, usage: usage)
                     usageResults[name] = usage
                     let p = min(max(usage.percentRemaining, 0), 100)
                     percentValues.append(p)
                 case let .failure(error):
-                    results[name] = "Error: \(shortErrorMessage(from: error))"
+                    guard let source = enabled.first(where: { $0.name == name }) else { break }
+                    let presentation = source.mapFetchError(error)
+                    SourceHealthStore.shared.recordFailure(sourceName: name, presentation: presentation)
+                    if let previous = SourceHealthStore.shared.health(for: name)?.lastSuccessfulUsage {
+                        results[name] = previous.formatted
+                        let p = min(max(previous.percentRemaining, 0), 100)
+                        percentValues.append(p)
+                    } else {
+                        results[name] = "N/A"
+                    }
                 }
                 loadingSources.remove(name)
                 updateMenu()
@@ -262,16 +291,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         shouldSendNotification(event: event, state: state)
     }
 
-    private func shortErrorMessage(from error: Error) -> String {
-        let message = (error as NSError).localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else { return "Unknown error" }
-
-        let singleLine = message.replacingOccurrences(of: "\n", with: " ")
-        if singleLine.count > 90 {
-            return String(singleLine.prefix(87)) + "..."
-        }
-        return singleLine
-    }
 }
 
 func shouldSendNotification(event: NotificationEvent, state: NotificationRuleState?) -> Bool {

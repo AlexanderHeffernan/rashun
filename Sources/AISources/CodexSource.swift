@@ -10,8 +10,20 @@ struct CodexSource: AISource {
 
     func fetchUsage() async throws -> UsageResult {
         let sessionsURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions")
-        guard let files = newestSessionFiles(in: sessionsURL, limit: 20), !files.isEmpty else {
-            throw NSError(domain: "CodexSource", code: -1, userInfo: [NSLocalizedDescriptionKey: "No Codex session files found"])
+        let sessionsPath = sessionsURL.path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sessionsPath, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw CodexFetchError.sessionsDirectoryMissing(path: sessionsPath)
+        }
+        guard FileManager.default.isReadableFile(atPath: sessionsPath) else {
+            throw CodexFetchError.sessionsDirectoryUnreadable(path: sessionsPath)
+        }
+
+        guard let files = newestSessionFiles(in: sessionsURL, limit: 20) else {
+            throw CodexFetchError.sessionsEnumerationFailed(path: sessionsPath)
+        }
+        guard !files.isEmpty else {
+            throw CodexFetchError.noSessionFiles(path: sessionsPath)
         }
 
         var latestSample: TokenCountSample?
@@ -31,7 +43,7 @@ struct CodexSource: AISource {
         }
 
         guard let sample = latestSample else {
-            throw NSError(domain: "CodexSource", code: -2, userInfo: [NSLocalizedDescriptionKey: "No token_count rate limit data found in recent Codex sessions"])
+            throw CodexFetchError.noTokenCountEvents
         }
 
         let remaining = max(0, min(100, 100 - sample.usedPercent))
@@ -43,6 +55,44 @@ struct CodexSource: AISource {
             cycleStartDate = nil
         }
         return UsageResult(remaining: remaining, limit: 100, resetDate: resetDate, cycleStartDate: cycleStartDate)
+    }
+
+    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+        if let codexError = error as? CodexFetchError {
+            switch codexError {
+            case let .sessionsDirectoryMissing(path):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Codex sessions folder missing",
+                    detailedMessage: "Expected Codex sessions folder was not found at \(path). Open Codex and run at least one request, then retry."
+                )
+            case let .sessionsDirectoryUnreadable(path):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Codex sessions unreadable",
+                    detailedMessage: "Rashun cannot read Codex session files at \(path). Check file permissions and try again."
+                )
+            case let .sessionsEnumerationFailed(path):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Could not read Codex sessions",
+                    detailedMessage: "Rashun failed to enumerate files in \(path). Check permissions and that the folder is accessible."
+                )
+            case let .noSessionFiles(path):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "No Codex sessions found",
+                    detailedMessage: "No recent `.jsonl` session files were found in \(path). Open Codex and run at least one request, then retry."
+                )
+            case .noTokenCountEvents:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "No Codex usage data yet",
+                    detailedMessage: "Recent Codex sessions did not include token usage events. Run a Codex request that emits `token_count` data, then try again."
+                )
+            }
+        }
+
+        let nsError = error as NSError
+        return SourceFetchErrorPresentation(
+            shortMessage: "Codex fetch failed",
+            detailedMessage: "Unable to fetch Codex usage. \(nsError.localizedDescription)"
+        )
     }
 
     func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
@@ -238,6 +288,14 @@ struct CodexSource: AISource {
         guard let slope = LinearRegression.slope(xs: xs, ys: ys) else { return 0 }
         return max(0, -slope)
     }
+}
+
+enum CodexFetchError: Error {
+    case sessionsDirectoryMissing(path: String)
+    case sessionsDirectoryUnreadable(path: String)
+    case sessionsEnumerationFailed(path: String)
+    case noSessionFiles(path: String)
+    case noTokenCountEvents
 }
 
 struct TokenCountSample {

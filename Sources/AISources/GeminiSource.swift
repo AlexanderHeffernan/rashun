@@ -21,23 +21,88 @@ struct GeminiSource: AISource {
         let envProject = ProcessInfo.processInfo.environment["GOOGLE_CLOUD_PROJECT"] ??
             ProcessInfo.processInfo.environment["GOOGLE_CLOUD_PROJECT_ID"]
         guard let projectId = resolveProjectId(from: loadResponse, envProject: envProject) else {
-            throw NSError(
-                domain: "GeminiSource",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not resolve Gemini Code Assist project ID"]
-            )
+            throw GeminiFetchError.projectResolutionFailed
         }
 
         let quotaResponse = try await retrieveUserQuota(accessToken: accessToken, projectId: projectId)
         guard let usage = parseUsage(from: quotaResponse.buckets ?? []) else {
-            throw NSError(
-                domain: "GeminiSource",
-                code: -2,
-                userInfo: [NSLocalizedDescriptionKey: "No usable quota bucket found for \(primaryModelId)"]
-            )
+            throw GeminiFetchError.noUsableQuotaBucket(modelId: primaryModelId)
         }
 
         return usage
+    }
+
+    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+        if let geminiError = error as? GeminiFetchError {
+            switch geminiError {
+            case let .credentialsMissing(path):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini credentials missing",
+                    detailedMessage: "Gemini credentials file was not found at \(path). Open Gemini CLI and complete login, then try again."
+                )
+            case let .credentialsReadFailed(message):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Cannot read Gemini credentials",
+                    detailedMessage: "Failed to read Gemini credentials. \(message)"
+                )
+            case .projectResolutionFailed:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini project ID missing",
+                    detailedMessage: "Could not resolve Gemini Code Assist project ID from CLI response or environment."
+                )
+            case let .noUsableQuotaBucket(modelId):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini quota unavailable",
+                    detailedMessage: "No usable Gemini quota bucket was found for \(modelId)."
+                )
+            case .accessTokenExpiredNoRefresh:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini auth issue",
+                    detailedMessage: "Gemini access token expired and no refresh token was available. Open Gemini CLI once to refresh login."
+                )
+            case let .tokenRefreshFailed(statusCode, body):
+                let suffix = body.isEmpty ? "" : " Response: \(body)"
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini token refresh failed",
+                    detailedMessage: "Gemini OAuth token refresh failed with HTTP \(statusCode).\(suffix)"
+                )
+            case .tokenRefreshMissingAccessToken:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini auth issue",
+                    detailedMessage: "Gemini token refresh succeeded but returned no access token."
+                )
+            case .oauthClientUnavailable:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini OAuth config missing",
+                    detailedMessage: "Could not resolve Gemini OAuth app credentials. Set GEMINI_OAUTH_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET, or reinstall Gemini CLI."
+                )
+            case let .loadCodeAssistFailed(statusCode, body):
+                let suffix = body.isEmpty ? "" : " Response: \(body)"
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini API error (\(statusCode))",
+                    detailedMessage: "Gemini loadCodeAssist request failed with HTTP \(statusCode).\(suffix)"
+                )
+            case let .retrieveUserQuotaFailed(statusCode, body):
+                let suffix = body.isEmpty ? "" : " Response: \(body)"
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Gemini API error (\(statusCode))",
+                    detailedMessage: "Gemini retrieveUserQuota request failed with HTTP \(statusCode).\(suffix)"
+                )
+            }
+        }
+
+        if let urlError = error as? URLError {
+            return SourceFetchErrorPresentation(
+                shortMessage: "Network error",
+                detailedMessage: "Network request to Gemini failed (\(urlError.code.rawValue)). Check connectivity, VPN/proxy settings, and try again."
+            )
+        }
+
+        let nsError = error as NSError
+        return SourceFetchErrorPresentation(
+            shortMessage: "Gemini fetch failed",
+            detailedMessage: "Unable to fetch Gemini usage. \(nsError.localizedDescription)"
+        )
     }
 
     func resolveProjectId(from response: GeminiLoadCodeAssistResponse, envProject: String?) -> String? {
@@ -100,8 +165,16 @@ struct GeminiSource: AISource {
 
     private func readCredentials() throws -> GeminiOAuthCredentials {
         let url = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".gemini/oauth_creds.json")
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(GeminiOAuthCredentials.self, from: data)
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(GeminiOAuthCredentials.self, from: data)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError {
+                throw GeminiFetchError.credentialsMissing(path: url.path)
+            }
+            throw GeminiFetchError.credentialsReadFailed(message: nsError.localizedDescription)
+        }
     }
 
     private func validAccessToken(from credentials: GeminiOAuthCredentials) async throws -> String {
@@ -114,11 +187,7 @@ struct GeminiSource: AISource {
         }
 
         guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
-            throw NSError(
-                domain: "GeminiSource",
-                code: -3,
-                userInfo: [NSLocalizedDescriptionKey: "Gemini access token is expired and no refresh token available. Open Gemini CLI once to refresh login."]
-            )
+            throw GeminiFetchError.accessTokenExpiredNoRefresh
         }
 
         return try await refreshAccessToken(refreshToken: refreshToken, existing: credentials)
@@ -141,21 +210,19 @@ struct GeminiSource: AISource {
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw NSError(
-                domain: "GeminiSource",
-                code: -4,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to refresh Gemini access token. Open Gemini CLI once to re-authenticate."]
+        guard let http = response as? HTTPURLResponse else {
+            throw GeminiFetchError.tokenRefreshFailed(statusCode: -1, bodySnippet: "Non-HTTP response")
+        }
+        guard http.statusCode == 200 else {
+            throw GeminiFetchError.tokenRefreshFailed(
+                statusCode: http.statusCode,
+                bodySnippet: bodySnippet(from: data)
             )
         }
 
         let refreshResponse = try JSONDecoder().decode(GeminiTokenRefreshResponse.self, from: data)
         guard let newToken = refreshResponse.accessToken, !newToken.isEmpty else {
-            throw NSError(
-                domain: "GeminiSource",
-                code: -5,
-                userInfo: [NSLocalizedDescriptionKey: "Gemini token refresh returned no access token."]
-            )
+            throw GeminiFetchError.tokenRefreshMissingAccessToken
         }
 
         let newExpiryMs = Date().timeIntervalSince1970 * 1000 + Double(refreshResponse.expiresIn ?? 3600) * 1000
@@ -188,11 +255,7 @@ struct GeminiSource: AISource {
             return parsed
         }
 
-        throw NSError(
-            domain: "GeminiSource",
-            code: -8,
-            userInfo: [NSLocalizedDescriptionKey: "Could not resolve Gemini OAuth app credentials. Set GEMINI_OAUTH_CLIENT_ID and GEMINI_OAUTH_CLIENT_SECRET, or reinstall Gemini CLI."]
-        )
+        throw GeminiFetchError.oauthClientUnavailable
     }
 
     private func parseOAuthClientFromInstalledGeminiCLI() -> (id: String, secret: String)? {
@@ -245,11 +308,13 @@ struct GeminiSource: AISource {
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw NSError(
-                domain: "GeminiSource",
-                code: -6,
-                userInfo: [NSLocalizedDescriptionKey: "Gemini loadCodeAssist request failed"]
+        guard let http = response as? HTTPURLResponse else {
+            throw GeminiFetchError.loadCodeAssistFailed(statusCode: -1, bodySnippet: "Non-HTTP response")
+        }
+        guard http.statusCode == 200 else {
+            throw GeminiFetchError.loadCodeAssistFailed(
+                statusCode: http.statusCode,
+                bodySnippet: bodySnippet(from: data)
             )
         }
 
@@ -265,11 +330,13 @@ struct GeminiSource: AISource {
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw NSError(
-                domain: "GeminiSource",
-                code: -7,
-                userInfo: [NSLocalizedDescriptionKey: "Gemini retrieveUserQuota request failed"]
+        guard let http = response as? HTTPURLResponse else {
+            throw GeminiFetchError.retrieveUserQuotaFailed(statusCode: -1, bodySnippet: "Non-HTTP response")
+        }
+        guard http.statusCode == 200 else {
+            throw GeminiFetchError.retrieveUserQuotaFailed(
+                statusCode: http.statusCode,
+                bodySnippet: bodySnippet(from: data)
             )
         }
 
@@ -286,6 +353,13 @@ struct GeminiSource: AISource {
         let standard = ISO8601DateFormatter()
         standard.formatOptions = [.withInternetDateTime]
         return standard.date(from: raw)
+    }
+
+    private func bodySnippet(from data: Data) -> String {
+        let text = String(data: data, encoding: .utf8)?
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return String(text.prefix(200))
     }
 
     private func resetWindowForecast(
@@ -369,6 +443,19 @@ struct GeminiSource: AISource {
         guard let slope = LinearRegression.slope(xs: xs, ys: ys) else { return 0 }
         return max(0, -slope)
     }
+}
+
+enum GeminiFetchError: Error {
+    case credentialsMissing(path: String)
+    case credentialsReadFailed(message: String)
+    case projectResolutionFailed
+    case noUsableQuotaBucket(modelId: String)
+    case accessTokenExpiredNoRefresh
+    case tokenRefreshFailed(statusCode: Int, bodySnippet: String)
+    case tokenRefreshMissingAccessToken
+    case oauthClientUnavailable
+    case loadCodeAssistFailed(statusCode: Int, bodySnippet: String)
+    case retrieveUserQuotaFailed(statusCode: Int, bodySnippet: String)
 }
 
 struct GeminiOAuthCredentials: Codable {

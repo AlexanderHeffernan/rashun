@@ -173,7 +173,7 @@ This project is licensed under the [MIT License](LICENSE).
 ## TODO
 - [X] Add app icon
 - [X] Add launch-at-login support
-- [ ] Need to fix start-up alert (“Rashun.app” would like to access files on a network volume.) – Likely fix is just to move the app bundle to /Applications instead of running from the project directory. Edit: Just installed to /Applications and it doesn't seem to have fixed the issue. Will need to investigate further.
+- [X] ~~Need to fix start-up alert (“Rashun.app” would like to access files on a network volume.) – Likely fix is just to move the app bundle to /Applications instead of running from the project directory. Edit: Just installed to /Applications and it doesn't seem to have fixed the issue. Will need to investigate further.~~ Seems to just be an issue with the Amp source, will just have to leave it for now.
 - [X] Set up a testing framework and add unit tests
 - [X] Set up a CI/CD pipeline (GitHub Actions)
 - [X] Add an easier install path (no clone/build required), with optional auto-update support
@@ -182,7 +182,8 @@ This project is licensed under the [MIT License](LICENSE).
 - [X] Evaluate AppKit vs SwiftUI trade-offs (AppKit currently gives better menu bar/notification control)
 - [X] ~~Add macOS widgets~~ (would be a nice-to-have, but requires use of Xcode which I'm trying to avoid)
 - [X] Improve data management (export/import usage data, delete stored data)
-- [ ] Improve error handling and user feedback (e.g., warning icon or alert when usage fetch fails)
-- [ ] Add source health checks when enabling a source
+- [X] Improve error handling and user feedback (e.g., warning icon or alert when usage fetch fails)
+- [X] Add source health checks when enabling a source
 - [ ] Do we need improved handling of my complex AI Sources with multiple usage quotas?
+- [ ] Improved visuals for the menu bar icon and dropdown to make it more intuitive, informative, and visually appealing (on-brand)
 - [ ] Final cleanup and code documentation

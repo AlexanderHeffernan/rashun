@@ -1,5 +1,15 @@
 import Foundation
 
+struct SourceFetchErrorPresentation: Codable {
+    let shortMessage: String
+    let detailedMessage: String
+
+    init(shortMessage: String, detailedMessage: String) {
+        self.shortMessage = shortMessage
+        self.detailedMessage = detailedMessage
+    }
+}
+
 struct UsageResult: Codable {
     let remaining: Double
     let limit: Double
@@ -31,6 +41,7 @@ protocol AISource: Sendable {
     var supportsPacingAlert: Bool { get }
     func pacingLookbackStart(current: UsageResult, history: [UsageSnapshot], now: Date) -> Date?
     func fetchUsage() async throws -> UsageResult
+    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation
     var notificationDefinitions: [NotificationDefinition] { get }
     var customNotificationDefinitions: [NotificationDefinition] { get }
     func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult?
@@ -51,6 +62,16 @@ extension AISource {
                 self.pacingLookbackStart(current: context.current, history: context.history, now: now)
             }
         ) + customNotificationDefinitions
+    }
+    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+        let raw = (error as NSError).localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let singleLine = raw.replacingOccurrences(of: "\n", with: " ")
+        let fallback = singleLine.isEmpty ? "Unknown fetch error." : singleLine
+        let short = singleLine.isEmpty ? "Unknown error" : String(singleLine.prefix(60))
+        return SourceFetchErrorPresentation(
+            shortMessage: short,
+            detailedMessage: "Unable to fetch usage for \(name). \(fallback)"
+        )
     }
     func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? { nil }
 }

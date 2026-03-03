@@ -18,8 +18,17 @@ struct CopilotSource: AISource {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw NSError(domain: "GitHubAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Bad status code"])
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CopilotFetchError.invalidHTTPResponse
+        }
+        guard httpResponse.statusCode == 200 else {
+            let bodySnippet = String(data: data, encoding: .utf8)?
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw CopilotFetchError.apiStatus(
+                statusCode: httpResponse.statusCode,
+                bodySnippet: String(bodySnippet.prefix(200))
+            )
         }
 
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -28,12 +37,12 @@ struct CopilotSource: AISource {
               let premium = quotaSnapshots["premium_interactions"] as? [String: Any],
               let remaining = premium["remaining"] as? Int,
               let entitlement = premium["entitlement"] as? Int else {
-            throw NSError(domain: "GitHubAPI", code: -2, userInfo: [NSLocalizedDescriptionKey: "Missing/invalid fields"])
+            throw CopilotFetchError.invalidPayload
         }
 
         guard let resetDate = monthlyResetDate(),
               let cycleStartDate = monthlyCycleStartDate() else {
-            throw NSError(domain: "GitHubAPI", code: -3, userInfo: [NSLocalizedDescriptionKey: "Failed to compute Copilot cycle dates"])
+            throw CopilotFetchError.cycleDateComputationFailed
         }
 
         return UsageResult(
@@ -41,6 +50,69 @@ struct CopilotSource: AISource {
             limit: Double(entitlement),
             resetDate: resetDate,
             cycleStartDate: cycleStartDate
+        )
+    }
+
+    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+        if let copilotError = error as? CopilotFetchError {
+            switch copilotError {
+            case let .ghNotInstalled(path):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "GitHub CLI not found",
+                    detailedMessage: "GitHub CLI (`gh`) was not found at \(path). Install `gh` and run `gh auth login`, then try again."
+                )
+            case let .ghCommandFailed(exitCode, stderr):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "GitHub CLI command failed",
+                    detailedMessage: "Failed to run `gh auth token` (exit \(exitCode)). GitHub CLI output: \(stderr)"
+                )
+            case let .ghNoToken(stderr):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Copilot auth missing",
+                    detailedMessage: "GitHub CLI returned no auth token. Run `gh auth login` and confirm your session is active. Details: \(stderr)"
+                )
+            case let .apiStatus(statusCode, bodySnippet):
+                let detailSuffix = bodySnippet.isEmpty ? "" : " Response: \(bodySnippet)"
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Copilot API error (\(statusCode))",
+                    detailedMessage: "Copilot API returned HTTP \(statusCode).\(detailSuffix)"
+                )
+            case .invalidPayload:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Unexpected Copilot response",
+                    detailedMessage: "Copilot API response was missing expected quota fields. If this persists, the endpoint response format may have changed."
+                )
+            case .cycleDateComputationFailed:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Copilot date parsing failed",
+                    detailedMessage: "Rashun could not compute Copilot cycle dates from the current system calendar context."
+                )
+            case .invalidHTTPResponse:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Invalid Copilot response",
+                    detailedMessage: "Received a non-HTTP response when requesting Copilot usage."
+                )
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == 2 {
+            return SourceFetchErrorPresentation(
+                shortMessage: "GitHub CLI not found",
+                detailedMessage: "GitHub CLI (`gh`) was not found at /opt/homebrew/bin/gh. Install `gh` and run `gh auth login`, then try again."
+            )
+        }
+
+        if let urlError = error as? URLError {
+            return SourceFetchErrorPresentation(
+                shortMessage: "Network error",
+                detailedMessage: "Network request to GitHub failed (\(urlError.code.rawValue)). Check connectivity, VPN/proxy settings, and try again."
+            )
+        }
+
+        return SourceFetchErrorPresentation(
+            shortMessage: "Copilot fetch failed",
+            detailedMessage: "Unable to fetch Copilot usage. \(nsError.localizedDescription)"
         )
     }
 
@@ -121,25 +193,43 @@ struct CopilotSource: AISource {
     }
 
     private func getGhAuthToken() throws -> String {
+        let ghPath = "/opt/homebrew/bin/gh"
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/gh")
+        process.executableURL = URL(fileURLWithPath: ghPath)
         process.arguments = ["auth", "token"]
         process.currentDirectoryURL = URL(fileURLWithPath: "/")
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileNoSuchFileError {
+                throw CopilotFetchError.ghNotInstalled(path: ghPath)
+            }
+            throw error
+        }
         process.waitUntilExit()
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let token = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !token.isEmpty else {
-            throw NSError(domain: "GitHubAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "No token from gh"])
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if process.terminationStatus != 0 {
+            throw CopilotFetchError.ghCommandFailed(exitCode: Int(process.terminationStatus), stderr: stderr.isEmpty ? "No error output" : stderr)
         }
 
-        return token
+        guard !stdout.isEmpty else {
+            throw CopilotFetchError.ghNoToken(stderr: stderr.isEmpty ? "No output from `gh auth token`." : stderr)
+        }
+
+        return stdout
     }
 
     private func monthlyCycleStartDate(reference: Date = Date()) -> Date? {
@@ -166,4 +256,14 @@ struct CopilotSource: AISource {
         guard let cycleStart = monthlyCycleStartDate(reference: reference) else { return nil }
         return calendar.date(byAdding: .month, value: 1, to: cycleStart)
     }
+}
+
+enum CopilotFetchError: Error {
+    case ghNotInstalled(path: String)
+    case ghCommandFailed(exitCode: Int, stderr: String)
+    case ghNoToken(stderr: String)
+    case apiStatus(statusCode: Int, bodySnippet: String)
+    case invalidPayload
+    case cycleDateComputationFailed
+    case invalidHTTPResponse
 }

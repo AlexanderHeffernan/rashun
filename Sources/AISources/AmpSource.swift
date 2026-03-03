@@ -7,14 +7,61 @@ struct AmpSource: AISource {
     func fetchUsage() async throws -> UsageResult {
         let output = try runCommand()
         guard let result = parseUsage(from: output) else {
-            throw NSError(domain: "AmpError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to parse: \(output)"])
+            throw AmpFetchError.parseFailed(output: output)
         }
         return result
     }
 
+    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+        if let ampError = error as? AmpFetchError {
+            switch ampError {
+            case let .binaryMissing(path):
+                return SourceFetchErrorPresentation(
+                    shortMessage: "AMP CLI not found",
+                    detailedMessage: "AMP CLI was not found at \(path). Install AMP CLI or update your setup, then try enabling AMP again."
+                )
+            case let .commandFailed(exitCode, output):
+                if output.lowercased().contains("login") || output.lowercased().contains("not logged in") {
+                    return SourceFetchErrorPresentation(
+                        shortMessage: "AMP login required",
+                        detailedMessage: "AMP CLI reported an authentication issue (exit \(exitCode)). Run AMP CLI and complete login, then try again."
+                    )
+                }
+                return SourceFetchErrorPresentation(
+                    shortMessage: "AMP command failed",
+                    detailedMessage: "AMP CLI exited with code \(exitCode). Output: \(output)"
+                )
+            case .emptyOutput:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "AMP returned no output",
+                    detailedMessage: "AMP CLI returned no output for the usage command. Run `~/.amp/bin/amp usage` manually to verify your AMP setup."
+                )
+            case .parseFailed:
+                return SourceFetchErrorPresentation(
+                    shortMessage: "Could not parse AMP output",
+                    detailedMessage: "Rashun could not parse AMP usage output. Run `~/.amp/bin/amp usage` in Terminal and confirm it returns `Amp Free: $x/$y remaining`."
+                )
+            }
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == 2 {
+            return SourceFetchErrorPresentation(
+                shortMessage: "AMP CLI not found",
+                detailedMessage: "AMP CLI was not found at ~/.amp/bin/amp. Install AMP CLI or update your setup, then try enabling AMP again."
+            )
+        }
+
+        return SourceFetchErrorPresentation(
+            shortMessage: "AMP fetch failed",
+            detailedMessage: "Unable to fetch AMP usage. \(nsError.localizedDescription)"
+        )
+    }
+
     private func runCommand() throws -> String {
+        let executablePath = NSHomeDirectory() + "/.amp/bin/amp"
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: NSHomeDirectory() + "/.amp/bin/amp")
+        process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = ["usage"]
         process.currentDirectoryURL = URL(fileURLWithPath: "/")
 
@@ -22,16 +69,28 @@ struct AmpSource: AISource {
         process.standardOutput = pipe
         process.standardError = pipe
 
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileNoSuchFileError {
+                throw AmpFetchError.binaryMissing(path: executablePath)
+            }
+            throw error
+        }
         process.waitUntilExit()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-            throw NSError(domain: "AmpError", code: 1, userInfo: [NSLocalizedDescriptionKey: "No output"])
+            throw AmpFetchError.emptyOutput
         }
 
         if process.terminationStatus != 0 {
-            throw NSError(domain: "AmpError", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: output])
+            throw AmpFetchError.commandFailed(exitCode: Int(process.terminationStatus), output: output)
+        }
+
+        guard !output.isEmpty else {
+            throw AmpFetchError.emptyOutput
         }
 
         return output
@@ -87,4 +146,11 @@ struct AmpSource: AISource {
 
         return UsageResult(remaining: remaining, limit: limit)
     }
+}
+
+enum AmpFetchError: Error {
+    case binaryMissing(path: String)
+    case commandFailed(exitCode: Int, output: String)
+    case emptyOutput
+    case parseFailed(output: String)
 }
