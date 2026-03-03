@@ -40,6 +40,25 @@ struct SecondaryActionButtonStyle: ButtonStyle {
     }
 }
 
+struct DangerActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundColor(.white)
+            .font(.system(size: 14, weight: .semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Color.red.opacity(configuration.isPressed ? 0.72 : 0.86))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 struct BrandNumericField: View {
     @Binding var text: String
     let width: CGFloat

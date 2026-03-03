@@ -3,6 +3,7 @@ import SwiftUI
 enum PreferencesTab: String, CaseIterable, Hashable {
     case general = "General"
     case sources = "Sources"
+    case data = "Data"
     case updates = "Updates"
 }
 
@@ -68,7 +69,7 @@ struct PreferencesRootView: View {
                     .font(.system(size: 44 / 2, weight: .bold, design: .rounded))
                     .foregroundColor(BrandPalette.textPrimary)
 
-                Text("Configure sources, notifications, and update behavior")
+                Text("Configure sources, notifications, data, and update behavior")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(BrandPalette.textSecondary)
             }
@@ -109,6 +110,8 @@ struct PreferencesRootView: View {
             GeneralTabView(model: model)
         case .sources:
             SourcesTabView(model: model)
+        case .data:
+            DataTabView(model: model)
         case .updates:
             UpdatesTabView(model: model)
         }
