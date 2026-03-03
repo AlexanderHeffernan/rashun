@@ -3,6 +3,13 @@ import ServiceManagement
 
 @MainActor
 final class PreferencesViewModel: ObservableObject {
+    struct NotificationSection: Identifiable {
+        let id: String
+        let title: String?
+        let sourceName: String
+        let definitions: [NotificationDefinition]
+    }
+
     @Published private(set) var sources: [AISource] = []
     @Published var expandedSources: Set<String> = []
     @Published var pendingEnableSource: AISource?
@@ -32,8 +39,21 @@ final class PreferencesViewModel: ObservableObject {
         settings.ensureSources(newSources.map { $0.name })
         for source in newSources {
             settings.ensureSourceMetrics(source: source)
-            settings.ensureNotificationRules(source: source)
-            if !settings.isEnabled(sourceName: source.name) { expandedSources.remove(source.name) }
+            if source.metrics.count <= 1 {
+                settings.ensureNotificationRules(source: source)
+            } else {
+                for metric in source.metrics {
+                    settings.ensureNotificationRules(
+                        source: source,
+                        metricId: metric.id,
+                        scopeName: notificationScopeName(source: source, metricId: metric.id)
+                    )
+                }
+            }
+            if !settings.isEnabled(sourceName: source.name) {
+                let metricScopePrefix = "\(source.name)::"
+                expandedSources = expandedSources.filter { $0 != source.name && !$0.hasPrefix(metricScopePrefix) }
+            }
             seedRuleInputDrafts(for: source)
         }
         pollMinutesText = formattedPollMinutes()
@@ -44,7 +64,8 @@ final class PreferencesViewModel: ObservableObject {
 
     func sourceToggleChanged(_ source: AISource, enabled: Bool) {
         guard !enabled else { pendingEnableSource = source; return }
-        expandedSources.remove(source.name)
+        let metricScopePrefix = "\(source.name)::"
+        expandedSources = expandedSources.filter { $0 != source.name && !$0.hasPrefix(metricScopePrefix) }
         settings.setEnabled(false, for: source.name)
     }
 
@@ -86,6 +107,14 @@ final class PreferencesViewModel: ObservableObject {
         if !expandedSources.insert(sourceName).inserted { expandedSources.remove(sourceName) }
     }
 
+    func isMetricNotificationsExpanded(sourceName: String, metricId: String) -> Bool {
+        expandedSources.contains(notificationScopeName(sourceName: sourceName, metricId: metricId))
+    }
+
+    func toggleMetricNotificationsSection(sourceName: String, metricId: String) {
+        toggleNotificationsSection(notificationScopeName(sourceName: sourceName, metricId: metricId))
+    }
+
     func isRuleEnabled(sourceName: String, ruleId: String) -> Bool {
         settings.ruleSettings(for: sourceName).first(where: { $0.ruleId == ruleId })?.isEnabled ?? false
     }
@@ -124,8 +153,12 @@ final class PreferencesViewModel: ObservableObject {
     func flushPendingEdits() {
         applyPollInterval()
         for source in sources {
-            for definition in notificationDefinitions(for: source) {
-                for input in definition.inputs { commitRuleInput(sourceName: source.name, ruleId: definition.id, input: input) }
+            for section in notificationSections(for: source) {
+                for definition in section.definitions {
+                    for input in definition.inputs {
+                        commitRuleInput(sourceName: section.sourceName, ruleId: definition.id, input: input)
+                    }
+                }
             }
         }
     }
@@ -216,19 +249,53 @@ final class PreferencesViewModel: ObservableObject {
     }
 
     private func seedRuleInputDrafts(for source: AISource) {
-        for definition in notificationDefinitions(for: source) {
-            for input in definition.inputs {
-                let key = inputKey(sourceName: source.name, ruleId: definition.id, inputId: input.id)
-                if ruleInputDrafts[key] != nil { continue }
-                let value = settings.ruleInputValue(sourceName: source.name, ruleId: definition.id, inputId: input.id, defaultValue: input.defaultValue)
-                ruleInputDrafts[key] = formattedNumber(value)
+        for section in notificationSections(for: source) {
+            for definition in section.definitions {
+                for input in definition.inputs {
+                    let key = inputKey(sourceName: section.sourceName, ruleId: definition.id, inputId: input.id)
+                    if ruleInputDrafts[key] != nil { continue }
+                    let value = settings.ruleInputValue(
+                        sourceName: section.sourceName,
+                        ruleId: definition.id,
+                        inputId: input.id,
+                        defaultValue: input.defaultValue
+                    )
+                    ruleInputDrafts[key] = formattedNumber(value)
+                }
             }
         }
     }
 
-    func notificationDefinitions(for source: AISource) -> [NotificationDefinition] {
+    func notificationSections(for source: AISource) -> [NotificationSection] {
         guard let primaryMetric = source.metrics.first else { return [] }
-        return source.notificationDefinitions(for: primaryMetric.id)
+
+        if source.metrics.count <= 1 {
+            return [
+                NotificationSection(
+                    id: source.name,
+                    title: nil,
+                    sourceName: source.name,
+                    definitions: source.notificationDefinitions(for: primaryMetric.id)
+                )
+            ]
+        }
+
+        return source.metrics.map { metric in
+            NotificationSection(
+                id: notificationScopeName(source: source, metricId: metric.id),
+                title: metric.title,
+                sourceName: notificationScopeName(source: source, metricId: metric.id),
+                definitions: source.notificationDefinitions(for: metric.id)
+            )
+        }
+    }
+
+    func notificationDefinitions(for source: AISource) -> [NotificationDefinition] {
+        notificationSections(for: source).first?.definitions ?? []
+    }
+
+    func notificationDefinitions(for source: AISource, metricId: String) -> [NotificationDefinition] {
+        source.notificationDefinitions(for: metricId)
     }
 
     private func formattedPollMinutes() -> String { formattedNumber(settings.pollInterval() / 60) }
@@ -276,5 +343,16 @@ final class PreferencesViewModel: ObservableObject {
 
     private func inputKey(sourceName: String, ruleId: String, inputId: String) -> String {
         "\(sourceName)|\(ruleId)|\(inputId)"
+    }
+
+    private func notificationScopeName(source: AISource, metricId: String) -> String {
+        if source.metrics.count <= 1 {
+            return source.name
+        }
+        return "\(source.name)::\(metricId)"
+    }
+
+    private func notificationScopeName(sourceName: String, metricId: String) -> String {
+        "\(sourceName)::\(metricId)"
     }
 }
