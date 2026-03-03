@@ -109,7 +109,26 @@ struct UsageHistoryRootView: View {
                 }
             }
             Spacer()
-            Text("Solid: actual  Dashed: forecast")
+            HStack(spacing: 12) {
+                lineStyleKey(label: "Recorded", dashed: false)
+                lineStyleKey(label: "Forecasted", dashed: true)
+            }
+        }
+    }
+
+    private func lineStyleKey(label: String, dashed: Bool) -> some View {
+        HStack(spacing: 6) {
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: 5))
+                path.addLine(to: CGPoint(x: 22, y: 5))
+            }
+            .stroke(
+                BrandPalette.textSecondary.opacity(0.95),
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: dashed ? [5, 4] : [])
+            )
+            .frame(width: 22, height: 10)
+
+            Text(label)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(BrandPalette.textSecondary)
         }
