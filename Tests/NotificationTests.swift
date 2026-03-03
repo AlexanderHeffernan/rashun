@@ -45,6 +45,8 @@ final class NotificationTests: XCTestCase {
     func testContextValue_delegatesToClosure() {
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 50, limit: 100),
             previous: nil,
             history: [],
@@ -92,6 +94,8 @@ final class NotificationTests: XCTestCase {
         let rule = genericRule(id: "percentRemainingBelow")
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 40, limit: 100),
             previous: UsageSnapshot(
                 timestamp: Date().addingTimeInterval(-60),
@@ -109,6 +113,8 @@ final class NotificationTests: XCTestCase {
         let rule = genericRule(id: "percentRemainingBelow")
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 60, limit: 100),
             previous: nil,
             history: [],
@@ -121,6 +127,8 @@ final class NotificationTests: XCTestCase {
         let rule = genericRule(id: "percentRemainingBelow")
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 30, limit: 100),
             previous: UsageSnapshot(
                 timestamp: Date().addingTimeInterval(-60),
@@ -136,6 +144,8 @@ final class NotificationTests: XCTestCase {
         let rule = genericRule(id: "percentRemainingBelow")
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 30, limit: 100),
             previous: nil,
             history: [],
@@ -150,6 +160,8 @@ final class NotificationTests: XCTestCase {
         let rule = genericRule(id: "recentUsageSpike")
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 40, limit: 100),
             previous: nil,
             history: [snapshot(minutesAgo: 30, remaining: 60)],
@@ -168,6 +180,8 @@ final class NotificationTests: XCTestCase {
         let rule = genericRule(id: "recentUsageSpike")
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 55, limit: 100),
             previous: nil,
             history: [snapshot(minutesAgo: 30, remaining: 60)],
@@ -184,6 +198,8 @@ final class NotificationTests: XCTestCase {
         let rule = genericRule(id: "recentUsageSpike")
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 40, limit: 100),
             previous: nil,
             history: [],
@@ -200,7 +216,7 @@ final class NotificationTests: XCTestCase {
         let without = NotificationDefinitions.generic(sourceName: "Test")
         XCTAssertNil(without.first(where: { $0.id == "pacingAlert" }))
 
-        let with = NotificationDefinitions.generic(sourceName: "Test", supportsPacingAlert: true)
+        let with = NotificationDefinitions.generic(sourceName: "Test", pacingLookbackStart: { _, now in now.addingTimeInterval(-24 * 3600) })
         let pacing = with.first(where: { $0.id == "pacingAlert" })
         XCTAssertNotNil(pacing)
         XCTAssertTrue(pacing!.inputs.isEmpty)
@@ -213,7 +229,7 @@ final class NotificationTests: XCTestCase {
     }
 
     private func pacingRule() -> NotificationDefinition {
-        NotificationDefinitions.generic(sourceName: "Test", supportsPacingAlert: true).first { $0.id == "pacingAlert" }!
+        NotificationDefinitions.generic(sourceName: "Test", pacingLookbackStart: { _, now in now.addingTimeInterval(-24 * 3600) }).first { $0.id == "pacingAlert" }!
     }
 
     private func makeContext(
@@ -224,6 +240,8 @@ final class NotificationTests: XCTestCase {
     ) -> NotificationContext {
         NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: remaining, limit: limit, resetDate: resetDate),
             previous: nil,
             history: history,
@@ -246,6 +264,8 @@ final class NotificationTests: XCTestCase {
 
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 50, limit: 100, resetDate: reset),
             previous: nil,
             history: [
@@ -275,6 +295,8 @@ final class NotificationTests: XCTestCase {
         let rule = pacingRule()
         let ctx = NotificationContext(
             sourceName: "Test",
+            metricId: nil,
+            metricTitle: nil,
             current: UsageResult(remaining: 60, limit: 100, resetDate: reset),
             previous: nil,
             history: [

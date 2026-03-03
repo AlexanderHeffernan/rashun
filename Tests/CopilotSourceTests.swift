@@ -6,7 +6,7 @@ final class CopilotSourceTests: XCTestCase {
 
     func testForecast_zeroBurnRate() {
         let usage = UsageResult(remaining: 300, limit: 300)
-        let result = source.forecast(current: usage, history: [])
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])
         XCTAssertNotNil(result)
         XCTAssertTrue(result!.summary.contains("resets"))
         XCTAssertFalse(result!.summary.contains("UTC"))
@@ -14,7 +14,7 @@ final class CopilotSourceTests: XCTestCase {
 
     func testForecast_activeBurnRate_lastPointIs100() {
         let usage = UsageResult(remaining: 150, limit: 300)
-        let result = source.forecast(current: usage, history: [])
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])
         XCTAssertNotNil(result)
         XCTAssertFalse(result!.points.isEmpty)
         XCTAssertEqual(result!.points.last!.value, 100.0)
@@ -22,13 +22,13 @@ final class CopilotSourceTests: XCTestCase {
 
     func testForecast_firstPointIsCurrentPercent() {
         let usage = UsageResult(remaining: 150, limit: 300)
-        let result = source.forecast(current: usage, history: [])!
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])!
         XCTAssertEqual(result.points.first!.value, 50.0, accuracy: 0.1)
     }
 
     func testForecast_zeroRemaining() {
         let usage = UsageResult(remaining: 0, limit: 300)
-        let result = source.forecast(current: usage, history: [])
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])
         XCTAssertNotNil(result)
         // Already at 0%, so summary shows projected value at reset
         XCTAssertTrue(result!.summary.contains("reset"))
@@ -36,7 +36,7 @@ final class CopilotSourceTests: XCTestCase {
 
     func testForecast_pointsAreChronological() {
         let usage = UsageResult(remaining: 100, limit: 300)
-        let result = source.forecast(current: usage, history: [])!
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])!
         for i in 1..<result.points.count {
             XCTAssertGreaterThanOrEqual(result.points[i].date, result.points[i - 1].date)
         }
@@ -44,7 +44,7 @@ final class CopilotSourceTests: XCTestCase {
 
     func testForecast_resetJumpsTo100() {
         let usage = UsageResult(remaining: 100, limit: 300)
-        let result = source.forecast(current: usage, history: [])!
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])!
         let lastTwo = Array(result.points.suffix(2))
         XCTAssertEqual(lastTwo.count, 2)
         // The second-to-last point should be the pre-reset value, last should be 100%

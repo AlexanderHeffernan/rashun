@@ -52,16 +52,17 @@ final class UsageHistoryViewModel: ObservableObject {
         var seriesIndex = 0
 
         for source in enabledSources {
-            let enabledMetrics = source.usageMetrics
+            let enabledMetrics = source.metrics
                 .filter { SettingsStore.shared.isMetricEnabled(sourceName: source.name, metricId: $0.id) }
 
-            if source.usageMetrics.count <= 1 {
+            if source.metrics.count <= 1 {
                 let color = Self.palette[seriesIndex % Self.palette.count]
                 seriesIndex += 1
                 let history = NotificationHistoryStore.shared.history(for: source.name)
                 let points = filterPoints(history, bounds: bounds)
-                let forecastPoints = filteredForecastPoints(source: source, history: history, points: points, bounds: bounds, showForecast: showForecast)
-                if showForecast, let current = history.last?.usage, let forecast = source.forecast(current: current, history: history) {
+                let metricId = source.metrics.first?.id ?? "default"
+                let forecastPoints = filteredForecastPoints(source: source, metricId: metricId, history: history, points: points, bounds: bounds, showForecast: showForecast)
+                if showForecast, let current = history.last?.usage, let forecast = source.forecast(for: metricId, current: current, history: history) {
                     summaries.append(forecast.summary)
                 }
                 chartSeries.append(ChartSeries(label: source.name, color: color, points: points, forecast: forecastPoints))
@@ -72,14 +73,14 @@ final class UsageHistoryViewModel: ObservableObject {
                 let color = Self.palette[seriesIndex % Self.palette.count]
                 seriesIndex += 1
                 var history = NotificationHistoryStore.shared.history(for: metricHistorySeriesName(source: source, metric: metric))
-                if history.isEmpty, metric.id == source.usageMetrics.first?.id {
+                if history.isEmpty, metric.id == source.metrics.first?.id {
                     history = NotificationHistoryStore.shared.history(for: source.name)
                 }
 
                 let points = filterPoints(history, bounds: bounds)
-                let forecastPoints = filteredForecastPoints(source: source, history: history, points: points, bounds: bounds, showForecast: showForecast)
+                let forecastPoints = filteredForecastPoints(source: source, metricId: metric.id, history: history, points: points, bounds: bounds, showForecast: showForecast)
 
-                if showForecast, let current = history.last?.usage, let forecast = source.forecast(current: current, history: history) {
+                if showForecast, let current = history.last?.usage, let forecast = source.forecast(for: metric.id, current: current, history: history) {
                     summaries.append(forecastSummary(label: "\(source.name) - \(metric.title)", original: forecast.summary))
                 }
 
@@ -123,6 +124,7 @@ final class UsageHistoryViewModel: ObservableObject {
 
     private func filteredForecastPoints(
         source: AISource,
+        metricId: String,
         history: [UsageSnapshot],
         points: [ChartPoint],
         bounds: (start: Date?, end: Date?),
@@ -130,7 +132,7 @@ final class UsageHistoryViewModel: ObservableObject {
     ) -> [ChartPoint] {
         guard showForecast,
               let current = history.last?.usage,
-              let forecast = source.forecast(current: current, history: history) else {
+              let forecast = source.forecast(for: metricId, current: current, history: history) else {
             return []
         }
 

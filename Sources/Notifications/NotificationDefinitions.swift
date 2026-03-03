@@ -3,7 +3,6 @@ import Foundation
 enum NotificationDefinitions {
     static func generic(
         sourceName: String,
-        supportsPacingAlert: Bool = false,
         pacingLookbackStart: ((NotificationContext, Date) -> Date?)? = nil
     ) -> [NotificationDefinition] {
         let percentRemainingBelow = NotificationDefinition(
@@ -78,7 +77,7 @@ enum NotificationDefinitions {
         )
 
         var definitions = [percentRemainingBelow, recentSpike]
-        if supportsPacingAlert {
+        if pacingLookbackStart != nil {
             definitions.append(pacingAlert(sourceName: sourceName, pacingLookbackStart: pacingLookbackStart))
         }
         return definitions

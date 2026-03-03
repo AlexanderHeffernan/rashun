@@ -3,8 +3,12 @@ import Foundation
 struct AmpSource: AISource {
     let name = "AMP"
     let requirements = "Requires the amp CLI installed at ~/.amp/bin/amp and executable."
+    let metrics = [AISourceMetric(id: "amp-free", title: "AMP")]
 
-    func fetchUsage() async throws -> UsageResult {
+    func fetchUsage(for metricId: String) async throws -> UsageResult {
+        guard metrics.contains(where: { $0.id == metricId }) else {
+            throw unsupportedMetricError(metricId)
+        }
         let output = try runCommand()
         guard let result = parseUsage(from: output) else {
             throw AmpFetchError.parseFailed(output: output)
@@ -12,7 +16,7 @@ struct AmpSource: AISource {
         return result
     }
 
-    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+    func mapFetchError(for metricId: String, _ error: Error) -> SourceFetchErrorPresentation {
         if let ampError = error as? AmpFetchError {
             switch ampError {
             case let .binaryMissing(path):
@@ -96,7 +100,7 @@ struct AmpSource: AISource {
         return output
     }
 
-    func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
+    func forecast(for metricId: String, current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
         let regenRatePerHour = 0.42 // Amp Free: +$0.42/hour
         guard current.limit > 0 else { return nil }
         let percentPerHour = (regenRatePerHour / current.limit) * 100

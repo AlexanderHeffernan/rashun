@@ -124,7 +124,7 @@ final class PreferencesViewModel: ObservableObject {
     func flushPendingEdits() {
         applyPollInterval()
         for source in sources {
-            for definition in source.notificationDefinitions {
+            for definition in notificationDefinitions(for: source) {
                 for input in definition.inputs { commitRuleInput(sourceName: source.name, ruleId: definition.id, input: input) }
             }
         }
@@ -200,11 +200,15 @@ final class PreferencesViewModel: ObservableObject {
             healthCheckSourceName = nil
         }
         do {
-            let usage = try await source.fetchUsage()
+            guard let metricId = source.metrics.first?.id else {
+                throw source.unsupportedMetricError("default")
+            }
+            let usage = try await source.fetchUsage(for: metricId)
             SourceHealthStore.shared.recordSuccess(sourceName: source.name, usage: usage)
             settings.setEnabled(true, for: source.name)
         } catch {
-            let presentation = source.mapFetchError(error)
+            let metricId = source.metrics.first?.id ?? "default"
+            let presentation = source.mapFetchError(for: metricId, error)
             SourceHealthStore.shared.recordFailure(sourceName: source.name, presentation: presentation)
             sourceHealthCheckErrorMessage = "Could not enable \(source.name).\n\n\(presentation.detailedMessage)"
             settings.setEnabled(false, for: source.name)
@@ -212,7 +216,7 @@ final class PreferencesViewModel: ObservableObject {
     }
 
     private func seedRuleInputDrafts(for source: AISource) {
-        for definition in source.notificationDefinitions {
+        for definition in notificationDefinitions(for: source) {
             for input in definition.inputs {
                 let key = inputKey(sourceName: source.name, ruleId: definition.id, inputId: input.id)
                 if ruleInputDrafts[key] != nil { continue }
@@ -220,6 +224,11 @@ final class PreferencesViewModel: ObservableObject {
                 ruleInputDrafts[key] = formattedNumber(value)
             }
         }
+    }
+
+    func notificationDefinitions(for source: AISource) -> [NotificationDefinition] {
+        guard let primaryMetric = source.metrics.first else { return [] }
+        return source.notificationDefinitions(for: primaryMetric.id)
     }
 
     private func formattedPollMinutes() -> String { formattedNumber(settings.pollInterval() / 60) }

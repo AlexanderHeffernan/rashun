@@ -58,7 +58,7 @@ final class AmpSourceTests: XCTestCase {
 
     func testForecast_fullyCharged() {
         let usage = UsageResult(remaining: 10, limit: 10)
-        let result = source.forecast(current: usage, history: [])
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])
         XCTAssertNotNil(result)
         XCTAssertTrue(result!.points.isEmpty)
         XCTAssertTrue(result!.summary.contains("fully charged"))
@@ -66,12 +66,12 @@ final class AmpSourceTests: XCTestCase {
 
     func testForecast_zeroLimit_returnsNil() {
         let usage = UsageResult(remaining: 0, limit: 0)
-        XCTAssertNil(source.forecast(current: usage, history: []))
+        XCTAssertNil(source.forecast(for: source.metrics[0].id, current: usage, history: []))
     }
 
     func testForecast_partialCharge_reachesHundred() {
         let usage = UsageResult(remaining: 5, limit: 10)
-        let result = source.forecast(current: usage, history: [])
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])
         XCTAssertNotNil(result)
         XCTAssertFalse(result!.points.isEmpty)
         XCTAssertTrue(result!.summary.contains("reaches 100%"))
@@ -81,7 +81,7 @@ final class AmpSourceTests: XCTestCase {
 
     func testForecast_pointsAreChronological() {
         let usage = UsageResult(remaining: 2, limit: 10)
-        let result = source.forecast(current: usage, history: [])!
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])!
         for i in 1..<result.points.count {
             XCTAssertGreaterThanOrEqual(result.points[i].date, result.points[i - 1].date)
         }
@@ -89,7 +89,7 @@ final class AmpSourceTests: XCTestCase {
 
     func testForecast_valuesMonotonicallyIncrease() {
         let usage = UsageResult(remaining: 3, limit: 10)
-        let result = source.forecast(current: usage, history: [])!
+        let result = source.forecast(for: source.metrics[0].id, current: usage, history: [])!
         for i in 1..<result.points.count {
             XCTAssertGreaterThanOrEqual(result.points[i].value, result.points[i - 1].value - 0.001)
         }

@@ -32,6 +32,8 @@ struct UsageSnapshot: Codable {
 
 struct NotificationContext {
     let sourceName: String
+    let metricId: String?
+    let metricTitle: String?
     let current: UsageResult
     let previous: UsageSnapshot?
     let history: [UsageSnapshot]

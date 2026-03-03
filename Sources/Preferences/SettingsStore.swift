@@ -93,7 +93,7 @@ final class SettingsStore {
     func ensureSourceMetrics(source: AISource) {
         let metricSettings = sourceMetricEnabledMap[source.name] ?? [:]
         var updated: [String: Bool] = [:]
-        for metric in source.usageMetrics {
+        for metric in source.metrics {
             if let existing = metricSettings[metric.id] {
                 updated[metric.id] = existing
             } else {
@@ -140,14 +140,27 @@ final class SettingsStore {
         notificationSettings[sourceName] ?? []
     }
 
-    func ensureNotificationRules(source: AISource) {
-        let current = notificationSettings[source.name] ?? []
+    func ensureNotificationRules(source: AISource, metricId: String? = nil, scopeName: String? = nil) {
+        let definitions: [NotificationDefinition]
+        if let metricId {
+            definitions = source.notificationDefinitions(for: metricId)
+        } else if let primaryMetric = source.metrics.first {
+            definitions = source.notificationDefinitions(for: primaryMetric.id)
+        } else {
+            definitions = []
+        }
+        let scopedSourceName = scopeName ?? source.name
+
+        var current = notificationSettings[scopedSourceName] ?? []
+        if current.isEmpty, scopedSourceName != source.name {
+            current = notificationSettings[source.name] ?? []
+        }
         var map: [String: NotificationRuleSetting] = [:]
         for setting in current {
             map[setting.ruleId] = setting
         }
 
-        for definition in source.notificationDefinitions {
+        for definition in definitions {
             if map[definition.id] == nil {
                 var values: [String: Double] = [:]
                 for input in definition.inputs {
@@ -157,8 +170,8 @@ final class SettingsStore {
             }
         }
 
-        let merged = source.notificationDefinitions.compactMap { map[$0.id] }
-        notificationSettings[source.name] = merged
+        let merged = definitions.compactMap { map[$0.id] }
+        notificationSettings[scopedSourceName] = merged
         save()
     }
 

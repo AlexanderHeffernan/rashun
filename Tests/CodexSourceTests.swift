@@ -55,7 +55,7 @@ final class CodexSourceTests: XCTestCase {
             UsageSnapshot(timestamp: now.addingTimeInterval(-3600), usage: UsageResult(remaining: 58, limit: 100, resetDate: reset)),
         ]
 
-        let forecast = source.forecast(current: current, history: history)
+        let forecast = source.forecast(for: source.metrics[0].id, current: current, history: history)
         XCTAssertNotNil(forecast)
         XCTAssertEqual(forecast!.points.last!.value, 100, accuracy: 0.001)
         XCTAssertTrue(forecast!.summary.contains("resets"))
@@ -79,7 +79,7 @@ final class CodexSourceTests: XCTestCase {
             UsageSnapshot(timestamp: now.addingTimeInterval(-10 * 60), usage: UsageResult(remaining: 100, limit: 100, resetDate: newReset)),
         ]
 
-        let forecast = source.forecast(current: current, history: history)
+        let forecast = source.forecast(for: source.metrics[0].id, current: current, history: history)
         XCTAssertNotNil(forecast)
         XCTAssertFalse(forecast!.summary.contains("projected 0%"))
         XCTAssertTrue(forecast!.points.allSatisfy { abs($0.value - 100) < 0.001 })

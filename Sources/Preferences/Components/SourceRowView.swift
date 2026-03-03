@@ -7,8 +7,9 @@ struct SourceRowView: View {
     var body: some View {
         let isEnabled = model.isSourceEnabled(source.name)
         let isExpanded = model.isSourceExpanded(source.name)
-        let hasNotifications = !source.notificationDefinitions.isEmpty
-        let hasMultipleMetrics = source.usageMetrics.count > 1
+        let notificationDefinitions = model.notificationDefinitions(for: source)
+        let hasNotifications = !notificationDefinitions.isEmpty
+        let hasMultipleMetrics = source.metrics.count > 1
         let isCheckingHealth = model.isSourceHealthCheckInProgress(source.name)
         let warningSummary = model.sourceWarningSummary(source.name)
         let warningDetail = model.sourceWarningDetail(source.name)
@@ -107,7 +108,7 @@ struct SourceRowView: View {
                         alignment: .leading,
                         spacing: 10
                     ) {
-                        ForEach(source.usageMetrics, id: \.id) { metric in
+                        ForEach(source.metrics, id: \.id) { metric in
                             Toggle(metric.title, isOn: Binding(
                                 get: { model.isMetricEnabled(sourceName: source.name, metricId: metric.id) },
                                 set: { model.setMetricEnabled(sourceName: source.name, metricId: metric.id, enabled: $0) }
@@ -147,7 +148,7 @@ struct SourceRowView: View {
                         .foregroundColor(BrandPalette.textSecondary)
                         .textCase(.uppercase)
 
-                    ForEach(source.notificationDefinitions, id: \.id) { definition in
+                    ForEach(notificationDefinitions, id: \.id) { definition in
                         RuleRowView(model: model, sourceName: source.name, definition: definition)
                     }
                 }

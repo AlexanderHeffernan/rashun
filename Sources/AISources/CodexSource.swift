@@ -3,12 +3,17 @@ import Foundation
 struct CodexSource: AISource {
     let name = "Codex"
     let requirements = "Requires Codex app/CLI installed and local session logs at ~/.codex/sessions."
-    let supportsPacingAlert = true
-    func pacingLookbackStart(current: UsageResult, history: [UsageSnapshot], now: Date) -> Date? {
-        current.cycleStartDate
+    let metrics = [AISourceMetric(id: "codex", title: "Codex")]
+    func pacingLookbackStart(for metricId: String) -> ((_ current: UsageResult, _ history: [UsageSnapshot], _ now: Date) -> Date?)? {
+        { current, _, _ in
+            current.cycleStartDate
+        }
     }
 
-    func fetchUsage() async throws -> UsageResult {
+    func fetchUsage(for metricId: String) async throws -> UsageResult {
+        guard metrics.contains(where: { $0.id == metricId }) else {
+            throw unsupportedMetricError(metricId)
+        }
         let sessionsURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".codex/sessions")
         let sessionsPath = sessionsURL.path
         var isDirectory: ObjCBool = false
@@ -57,7 +62,7 @@ struct CodexSource: AISource {
         return UsageResult(remaining: remaining, limit: 100, resetDate: resetDate, cycleStartDate: cycleStartDate)
     }
 
-    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+    func mapFetchError(for metricId: String, _ error: Error) -> SourceFetchErrorPresentation {
         if let codexError = error as? CodexFetchError {
             switch codexError {
             case let .sessionsDirectoryMissing(path):
@@ -95,7 +100,7 @@ struct CodexSource: AISource {
         )
     }
 
-    func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
+    func forecast(for metricId: String, current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
         guard let resetDate = current.resetDate, resetDate > Date() else { return nil }
         return resetWindowForecast(
             sourceLabel: name,

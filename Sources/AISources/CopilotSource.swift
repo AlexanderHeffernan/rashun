@@ -3,12 +3,17 @@ import Foundation
 struct CopilotSource: AISource {
     let name = "Copilot"
     let requirements = "Requires GitHub CLI 'gh' configured and authenticated (used to fetch auth token)."
-    let supportsPacingAlert = true
-    func pacingLookbackStart(current: UsageResult, history: [UsageSnapshot], now: Date) -> Date? {
-        current.cycleStartDate
+    let metrics = [AISourceMetric(id: "copilot-premium-interactions", title: "Copilot")]
+    func pacingLookbackStart(for metricId: String) -> ((_ current: UsageResult, _ history: [UsageSnapshot], _ now: Date) -> Date?)? {
+        { current, _, _ in
+            current.cycleStartDate
+        }
     }
 
-    func fetchUsage() async throws -> UsageResult {
+    func fetchUsage(for metricId: String) async throws -> UsageResult {
+        guard metrics.contains(where: { $0.id == metricId }) else {
+            throw unsupportedMetricError(metricId)
+        }
         let token = try getGhAuthToken()
 
         var request = URLRequest(url: URL(string: "https://api.github.com/copilot_internal/user")!)
@@ -53,7 +58,7 @@ struct CopilotSource: AISource {
         )
     }
 
-    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+    func mapFetchError(for metricId: String, _ error: Error) -> SourceFetchErrorPresentation {
         if let copilotError = error as? CopilotFetchError {
             switch copilotError {
             case let .ghNotInstalled(path):
@@ -116,7 +121,7 @@ struct CopilotSource: AISource {
         )
     }
 
-    func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
+    func forecast(for metricId: String, current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
         let now = Date()
         guard let resetDate = current.resetDate ?? monthlyResetDate(reference: now) else {
             return nil

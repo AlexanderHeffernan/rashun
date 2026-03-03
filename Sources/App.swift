@@ -2,6 +2,11 @@ import Cocoa
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private struct SourceMetricFetchError: Error {
+        let metricId: String
+        let underlying: Error
+    }
+
     var statusItem: NSStatusItem?
     var menu: NSMenu?
     var pollTimer: Timer?
@@ -38,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for source in sources {
             SettingsStore.shared.ensureSourceMetrics(source: source)
             if let usage = SourceHealthStore.shared.health(for: source.name)?.lastSuccessfulUsage {
-                let metricId = source.usageMetrics.first?.id ?? "default"
+                let metricId = source.metrics.first?.id ?? "default"
                 results[source.name] = [metricId: usage.formatted]
             }
         }
@@ -109,8 +114,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let currentResults = results[source.name] ?? [:]
         let warningSuffix = hasWarning ? "  ⚠" : ""
 
-        if source.usageMetrics.count <= 1 {
-            let metricId = metrics.first?.id ?? source.usageMetrics.first?.id ?? "default"
+        if source.metrics.count <= 1 {
+            let metricId = metrics.first?.id ?? source.metrics.first?.id ?? "default"
             let display = loadingSources.contains(source.name)
                 ? loadingIndicator
                 : (currentResults[metricId] ?? SourceHealthStore.shared.health(for: source.name)?.lastSuccessfulUsage?.formatted ?? "N/A")
@@ -182,13 +187,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateMenu()
 
         var percentValues: [Double] = []
-        var usageResults: [String: UsageResult] = [:]
+        var usageResultsBySource: [String: [String: UsageResult]] = [:]
 
         await withTaskGroup(of: (String, Result<[String: UsageResult], Error>).self) { group in
             for source in enabled {
                 group.addTask {
                     do {
-                        let usage = try await source.fetchUsageByMetric()
+                        let usage = try await self.fetchUsageByMetric(for: source)
                         return (source.name, .success(usage))
                     } catch {
                         return (source.name, .failure(error))
@@ -206,9 +211,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case let .success(metricUsages):
                     let metricDisplays = metricUsages.mapValues { $0.formatted }
                     results[name] = metricDisplays
+                    usageResultsBySource[name] = metricUsages
 
-                    if source.usageMetrics.count > 1 {
-                        for metric in source.usageMetrics {
+                    if source.metrics.count > 1 {
+                        for metric in source.metrics {
                             guard let metricUsage = metricUsages[metric.id] else { continue }
                             NotificationHistoryStore.shared.append(
                                 sourceName: metricHistorySeriesName(source: source, metric: metric),
@@ -220,9 +226,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     let enabledMetricSet = Set(enabledMetrics(for: source).map(\.id))
                     let usableMetricIds: [String]
                     if enabledMetricSet.isEmpty {
-                        usableMetricIds = source.usageMetrics.map(\.id)
+                        usableMetricIds = source.metrics.map(\.id)
                     } else {
-                        usableMetricIds = source.usageMetrics.map(\.id).filter { enabledMetricSet.contains($0) }
+                        usableMetricIds = source.metrics.map(\.id).filter { enabledMetricSet.contains($0) }
                     }
 
                     for metricId in usableMetricIds {
@@ -233,13 +239,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                     if let primaryUsage = sourcePrimaryUsage(source: source, metricUsages: metricUsages) {
                         SourceHealthStore.shared.recordSuccess(sourceName: name, usage: primaryUsage)
-                        usageResults[name] = primaryUsage
                     }
                 case let .failure(error):
-                    let presentation = source.mapFetchError(error)
+                    let mappedMetricId: String
+                    let mappedError: Error
+                    if let scoped = error as? SourceMetricFetchError {
+                        mappedMetricId = scoped.metricId
+                        mappedError = scoped.underlying
+                    } else {
+                        mappedMetricId = source.metrics.first?.id ?? "default"
+                        mappedError = error
+                    }
+                    let presentation = source.mapFetchError(for: mappedMetricId, mappedError)
                     SourceHealthStore.shared.recordFailure(sourceName: name, presentation: presentation)
                     if let previous = SourceHealthStore.shared.health(for: name)?.lastSuccessfulUsage {
-                        let primaryMetricId = source.usageMetrics.first?.id ?? "default"
+                        let primaryMetricId = source.metrics.first?.id ?? "default"
                         results[name] = [primaryMetricId: previous.formatted]
                         let p = min(max(previous.percentRemaining, 0), 100)
                         percentValues.append(p)
@@ -253,7 +267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         lastRefreshDate = Date()
-        await evaluateNotifications(sources: enabled, results: usageResults)
+        await evaluateNotifications(sources: enabled, results: usageResultsBySource)
 
         // compute average remaining percentage across successful sources
         if percentValues.isEmpty {
@@ -281,12 +295,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func enabledMetrics(for source: AISource) -> [AISourceMetric] {
-        source.usageMetrics.filter { SettingsStore.shared.isMetricEnabled(sourceName: source.name, metricId: $0.id) }
+        source.metrics.filter { SettingsStore.shared.isMetricEnabled(sourceName: source.name, metricId: $0.id) }
     }
 
     private func sourcePrimaryUsage(source: AISource, metricUsages: [String: UsageResult]) -> UsageResult? {
         let enabledMetricIds = Set(enabledMetrics(for: source).map(\.id))
-        for metric in source.usageMetrics {
+        for metric in source.metrics {
             if !enabledMetricIds.isEmpty, !enabledMetricIds.contains(metric.id) {
                 continue
             }
@@ -294,7 +308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return usage
             }
         }
-        for metric in source.usageMetrics {
+        for metric in source.metrics {
             if let usage = metricUsages[metric.id] {
                 return usage
             }
@@ -355,45 +369,81 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func evaluateNotifications(sources: [AISource], results: [String: UsageResult]) async {
+    private func evaluateNotifications(sources: [AISource], results: [String: [String: UsageResult]]) async {
         for source in sources {
-            guard let current = results[source.name] else { continue }
-            SettingsStore.shared.ensureNotificationRules(source: source)
-            let rules = SettingsStore.shared.ruleSettings(for: source.name)
-            let history = NotificationHistoryStore.shared.history(for: source.name)
-            let previous = history.last
-
-            for rule in rules where rule.isEnabled {
-                guard let definition = source.notificationDefinitions.first(where: { $0.id == rule.ruleId }) else { continue }
-                let ruleId = rule.ruleId
-                let valueProvider: (String, Double) -> Double = { inputId, defaultValue in
-                    SettingsStore.shared.ruleInputValue(sourceName: source.name, ruleId: ruleId, inputId: inputId, defaultValue: defaultValue)
-                }
-
-                let ctx = NotificationContext(
-                    sourceName: source.name,
-                    current: current,
-                    previous: previous,
-                    history: history,
-                    inputValue: valueProvider
+            let metricUsages = results[source.name] ?? [:]
+            for metric in enabledMetrics(for: source) {
+                guard let current = metricUsages[metric.id] else { continue }
+                let scopedName = notificationScopeName(source: source, metric: metric)
+                SettingsStore.shared.ensureNotificationRules(
+                    source: source,
+                    metricId: metric.id,
+                    scopeName: scopedName
                 )
+                let rules = SettingsStore.shared.ruleSettings(for: scopedName)
+                let history = NotificationHistoryStore.shared.history(for: scopedName)
+                let previous = history.last
+                let definitions = source.notificationDefinitions(for: metric.id)
 
-                guard let event = definition.evaluate(ctx) else { continue }
+                for rule in rules where rule.isEnabled {
+                    guard let definition = definitions.first(where: { $0.id == rule.ruleId }) else { continue }
+                    let ruleId = rule.ruleId
+                    let valueProvider: (String, Double) -> Double = { inputId, defaultValue in
+                        SettingsStore.shared.ruleInputValue(sourceName: scopedName, ruleId: ruleId, inputId: inputId, defaultValue: defaultValue)
+                    }
 
-                let state = SettingsStore.shared.ruleState(sourceName: source.name, ruleId: ruleId)
-                if shouldSend(event: event, state: state) {
-                    NotificationManager.shared.sendNotification(title: event.title, body: event.body)
-                    let newState = NotificationRuleState(lastFiredAt: Date(), lastFiredCycleKey: event.cycleKey)
-                    SettingsStore.shared.setRuleState(newState, sourceName: source.name, ruleId: ruleId)
+                    let ctx = NotificationContext(
+                        sourceName: source.name,
+                        metricId: metric.id,
+                        metricTitle: metric.title,
+                        current: current,
+                        previous: previous,
+                        history: history,
+                        inputValue: valueProvider
+                    )
+
+                    guard let event = definition.evaluate(ctx) else { continue }
+
+                    let state = SettingsStore.shared.ruleState(sourceName: scopedName, ruleId: ruleId)
+                    if shouldSend(event: event, state: state) {
+                        NotificationManager.shared.sendNotification(title: event.title, body: event.body)
+                        let newState = NotificationRuleState(lastFiredAt: Date(), lastFiredCycleKey: event.cycleKey)
+                        SettingsStore.shared.setRuleState(newState, sourceName: scopedName, ruleId: ruleId)
+                    }
                 }
-            }
 
-            NotificationHistoryStore.shared.append(sourceName: source.name, usage: current)
+                NotificationHistoryStore.shared.append(sourceName: scopedName, usage: current)
+            }
         }
     }
 
     private func shouldSend(event: NotificationEvent, state: NotificationRuleState?) -> Bool {
         shouldSendNotification(event: event, state: state)
+    }
+
+    private func notificationScopeName(source: AISource, metric: AISourceMetric) -> String {
+        if source.metrics.count <= 1 {
+            return source.name
+        }
+        return "\(source.name)::\(metric.id)"
+    }
+
+    private func fetchUsageByMetric(for source: AISource) async throws -> [String: UsageResult] {
+        var usages: [String: UsageResult] = [:]
+        var firstError: (metricId: String, error: Error)?
+        for metric in source.metrics {
+            do {
+                usages[metric.id] = try await source.fetchUsage(for: metric.id)
+            } catch {
+                if firstError == nil {
+                    firstError = (metric.id, error)
+                }
+            }
+        }
+        if usages.isEmpty, let firstError {
+            throw SourceMetricFetchError(metricId: firstError.metricId, underlying: firstError.error)
+        }
+        return usages
     }
 
 }

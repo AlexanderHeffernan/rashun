@@ -75,7 +75,7 @@ final class GeminiSourceTests: XCTestCase {
             UsageSnapshot(timestamp: now.addingTimeInterval(-1800), usage: UsageResult(remaining: 63, limit: 100, resetDate: reset)),
         ]
 
-        let forecast = source.forecast(current: current, history: history)
+        let forecast = source.forecast(for: "gemini-3-pro-preview", current: current, history: history)
         XCTAssertNotNil(forecast)
         XCTAssertEqual(forecast!.points.last!.value, 100, accuracy: 0.001)
         XCTAssertFalse(forecast!.summary.isEmpty)

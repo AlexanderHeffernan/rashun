@@ -1,35 +1,69 @@
 import Foundation
 
 struct GeminiSource: AISource {
+    private actor UsageCache {
+        private var inFlight: Task<[String: UsageResult], Error>?
+        private var lastValue: (timestamp: Date, usages: [String: UsageResult])?
+
+        func usages(loader: @escaping @Sendable () async throws -> [String: UsageResult]) async throws -> [String: UsageResult] {
+            if let cached = lastValue, Date().timeIntervalSince(cached.timestamp) < 2 {
+                return cached.usages
+            }
+            if let inFlight {
+                return try await inFlight.value
+            }
+
+            let task = Task { try await loader() }
+            inFlight = task
+            do {
+                let usages = try await task.value
+                lastValue = (Date(), usages)
+                inFlight = nil
+                return usages
+            } catch {
+                inFlight = nil
+                throw error
+            }
+        }
+    }
+
+    private static let usageCache = UsageCache()
+
     let name = "Gemini"
     let requirements = "Requires Gemini CLI with Google login and local credentials at ~/.gemini/oauth_creds.json."
-    let usageMetrics: [AISourceMetric] = [
+    let metrics: [AISourceMetric] = [
         AISourceMetric(id: "gemini-2.5-flash", title: "2.5-Flash"),
         AISourceMetric(id: "gemini-2.5-flash-lite", title: "2.5-Flash-Lite"),
         AISourceMetric(id: "gemini-2.5-pro", title: "2.5-Pro"),
         AISourceMetric(id: "gemini-3-flash-preview", title: "3-Flash-Preview"),
         AISourceMetric(id: "gemini-3-pro-preview", title: "3-Pro-Preview"),
     ]
-    let supportsPacingAlert = true
-    func pacingLookbackStart(current: UsageResult, history: [UsageSnapshot], now: Date) -> Date? {
-        current.cycleStartDate
+    func pacingLookbackStart(for metricId: String) -> ((_ current: UsageResult, _ history: [UsageSnapshot], _ now: Date) -> Date?)? {
+        guard metricId == "gemini-3-pro-preview" else {
+            return nil
+        }
+        return { current, _, _ in
+            current.cycleStartDate
+        }
     }
 
     private let loadCodeAssistURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
     private let retrieveUserQuotaURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")!
 
-    func fetchUsage() async throws -> UsageResult {
-        let metricUsages = try await fetchUsageByMetric()
-        if let firstUsage = usageMetrics.compactMap({ metricUsages[$0.id] }).first {
-            return firstUsage
+    func fetchUsage(for metricId: String) async throws -> UsageResult {
+        guard metrics.contains(where: { $0.id == metricId }) else {
+            throw unsupportedMetricError(metricId)
         }
-        guard let usage = metricUsages.values.first else {
-            throw GeminiFetchError.noUsableQuotaBucket(modelId: usageMetrics.first?.id ?? "Gemini")
+        let metricUsages = try await Self.usageCache.usages {
+            try await fetchUsageByMetric()
+        }
+        guard let usage = metricUsages[metricId] else {
+            throw GeminiFetchError.noUsableQuotaBucket(modelId: metricId)
         }
         return usage
     }
 
-    func fetchUsageByMetric() async throws -> [String: UsageResult] {
+    private func fetchUsageByMetric() async throws -> [String: UsageResult] {
         let credentials = try readCredentials()
         let accessToken = try await validAccessToken(from: credentials)
 
@@ -43,12 +77,12 @@ struct GeminiSource: AISource {
         let quotaResponse = try await retrieveUserQuota(accessToken: accessToken, projectId: projectId)
         let metricUsages = parseUsageByMetric(from: quotaResponse.buckets ?? [])
         if metricUsages.isEmpty {
-            throw GeminiFetchError.noUsableQuotaBucket(modelId: usageMetrics.first?.id ?? "Gemini")
+            throw GeminiFetchError.noUsableQuotaBucket(modelId: metrics.first?.id ?? "Gemini")
         }
         return metricUsages
     }
 
-    func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
+    func mapFetchError(for metricId: String, _ error: Error) -> SourceFetchErrorPresentation {
         if let geminiError = error as? GeminiFetchError {
             switch geminiError {
             case let .credentialsMissing(path):
@@ -138,7 +172,7 @@ struct GeminiSource: AISource {
 
     func parseUsageByMetric(from buckets: [GeminiQuotaBucket]) -> [String: UsageResult] {
         var parsed: [String: UsageResult] = [:]
-        let expectedIds = Set(usageMetrics.map(\.id))
+        let expectedIds = Set(metrics.map(\.id))
         for bucket in buckets {
             guard let modelId = bucket.modelId, expectedIds.contains(modelId) else { continue }
             guard let usage = parseUsage(from: bucket) else { continue }
@@ -172,7 +206,7 @@ struct GeminiSource: AISource {
     }
 
     func selectPreferredBucket(from buckets: [GeminiQuotaBucket]) -> GeminiQuotaBucket? {
-        for metric in usageMetrics {
+        for metric in metrics {
             if let bucket = buckets.first(where: { $0.modelId == metric.id }) {
                 return bucket
             }
@@ -180,7 +214,7 @@ struct GeminiSource: AISource {
         return nil
     }
 
-    func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
+    func forecast(for metricId: String, current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? {
         guard let resetDate = current.resetDate, resetDate > Date() else { return nil }
         return resetWindowForecast(
             sourceLabel: name,
