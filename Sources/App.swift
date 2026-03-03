@@ -61,7 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu?.removeAllItems()
         let enabled = sources.filter { SettingsStore.shared.isEnabled(sourceName: $0.name) }
         if enabled.isEmpty {
-            menu?.addItem(withTitle: "No sources enabled — open Settings...", action: #selector(showPreferences), keyEquivalent: "")
+            menu?.addItem(withTitle: "No sources enabled — open Preferences...", action: #selector(showPreferences), keyEquivalent: "")
         } else {
             for source in enabled {
                 let display = loadingSources.contains(source.name)
@@ -89,7 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu?.addItem(withTitle: "Usage History...", action: #selector(showChart), keyEquivalent: "")
 
         menu?.addItem(NSMenuItem.separator())
-        menu?.addItem(withTitle: "Settings...", action: #selector(showPreferences), keyEquivalent: ",")
+        menu?.addItem(withTitle: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
         menu?.addItem(NSMenuItem.separator())
         menu?.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
     }
