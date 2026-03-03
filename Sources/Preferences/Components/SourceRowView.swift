@@ -8,6 +8,7 @@ struct SourceRowView: View {
         let isEnabled = model.isSourceEnabled(source.name)
         let isExpanded = model.isSourceExpanded(source.name)
         let hasNotifications = !source.notificationDefinitions.isEmpty
+        let hasMultipleMetrics = source.usageMetrics.count > 1
         let isCheckingHealth = model.isSourceHealthCheckInProgress(source.name)
         let warningSummary = model.sourceWarningSummary(source.name)
         let warningDetail = model.sourceWarningDetail(source.name)
@@ -90,6 +91,51 @@ struct SourceRowView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(BrandPalette.warning.opacity(0.28), lineWidth: 1)
+                        )
+                )
+            }
+
+            if isEnabled, hasMultipleMetrics {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Usage Metrics")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(BrandPalette.textSecondary)
+                        .textCase(.uppercase)
+
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 220), spacing: 10, alignment: .leading)],
+                        alignment: .leading,
+                        spacing: 10
+                    ) {
+                        ForEach(source.usageMetrics, id: \.id) { metric in
+                            Toggle(metric.title, isOn: Binding(
+                                get: { model.isMetricEnabled(sourceName: source.name, metricId: metric.id) },
+                                set: { model.setMetricEnabled(sourceName: source.name, metricId: metric.id, enabled: $0) }
+                            ))
+                            .toggleStyle(.checkbox)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(BrandPalette.textPrimary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(BrandPalette.background.opacity(0.42))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                            .stroke(BrandPalette.primary.opacity(0.16), lineWidth: 1)
+                                    )
+                            )
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(BrandPalette.cardAlt.opacity(0.55))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(BrandPalette.primary.opacity(0.18), lineWidth: 1)
                         )
                 )
             }

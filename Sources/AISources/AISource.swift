@@ -33,14 +33,28 @@ struct UsageResult: Codable {
     }
 }
 
+struct AISourceMetric: Sendable, Hashable {
+    let id: String
+    let title: String
+    let defaultEnabled: Bool
+
+    init(id: String, title: String, defaultEnabled: Bool = true) {
+        self.id = id
+        self.title = title
+        self.defaultEnabled = defaultEnabled
+    }
+}
+
 protocol AISource: Sendable {
     // Unique name for this source (shown in menu and settings)
     var name: String { get }
     /// Human-readable requirements or hints for using this source (shown in Preferences)
     var requirements: String { get }
+    var usageMetrics: [AISourceMetric] { get }
     var supportsPacingAlert: Bool { get }
     func pacingLookbackStart(current: UsageResult, history: [UsageSnapshot], now: Date) -> Date?
     func fetchUsage() async throws -> UsageResult
+    func fetchUsageByMetric() async throws -> [String: UsageResult]
     func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation
     var notificationDefinitions: [NotificationDefinition] { get }
     var customNotificationDefinitions: [NotificationDefinition] { get }
@@ -49,6 +63,7 @@ protocol AISource: Sendable {
 
 extension AISource {
     var requirements: String { "" }
+    var usageMetrics: [AISourceMetric] { [AISourceMetric(id: "default", title: name)] }
     var supportsPacingAlert: Bool { false }
     func pacingLookbackStart(current: UsageResult, history: [UsageSnapshot], now: Date) -> Date? {
         current.cycleStartDate
@@ -72,6 +87,12 @@ extension AISource {
             shortMessage: short,
             detailedMessage: "Unable to fetch usage for \(name). \(fallback)"
         )
+    }
+    func fetchUsageByMetric() async throws -> [String: UsageResult] {
+        guard let metric = usageMetrics.first else {
+            return ["default": try await fetchUsage()]
+        }
+        return [metric.id: try await fetchUsage()]
     }
     func forecast(current: UsageResult, history: [UsageSnapshot]) -> ForecastResult? { nil }
 }

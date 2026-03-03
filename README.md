@@ -187,5 +187,5 @@ This project is licensed under the [MIT License](LICENSE).
 - [ ] Do we need improved handling of my complex AI Sources with multiple usage quotas?
 - [ ] Improved visuals for the menu bar icon and dropdown to make it more intuitive, informative, and visually appealing (on-brand)
 - [X] Show/hide lines on Usage History chart
-- [ ] Fix bug where if data isn't changing in a source, it skips storage of the usage event. It should instead replace the last stored event with the new one, so that the history is accurate even when usage isn't changing. If no changes are occuring, need to save the first occurance and the latest occurance.
+- [X] Fix bug where if data isn't changing in a source, it skips storage of the usage event. It should instead replace the last stored event with the new one, so that the history is accurate even when usage isn't changing. If no changes are occuring, need to save the first occurance and the latest occurance.
 - [ ] Final cleanup and code documentation

@@ -9,7 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     var sources: [AISource] { allSources }
 
-    var results: [String: String] = [:]
+    var results: [String: [String: String]] = [:]
     var loadingSources: Set<String> = []
     var lastRefreshDate: Date?
 
@@ -36,8 +36,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         SettingsStore.shared.ensureSources(sources.map { $0.name })
         for source in sources {
+            SettingsStore.shared.ensureSourceMetrics(source: source)
             if let usage = SourceHealthStore.shared.health(for: source.name)?.lastSuccessfulUsage {
-                results[source.name] = usage.formatted
+                let metricId = source.usageMetrics.first?.id ?? "default"
+                results[source.name] = [metricId: usage.formatted]
             }
         }
         updateMenu()
@@ -71,21 +73,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             var hasWarnings = false
             for source in enabled {
                 let health = SourceHealthStore.shared.health(for: source.name)
-                let display = loadingSources.contains(source.name)
-                    ? loadingIndicator
-                    : (results[source.name] ?? health?.lastSuccessfulUsage?.formatted ?? "N/A")
                 let hasWarning = !loadingSources.contains(source.name) && health?.shortErrorMessage != nil
                 if hasWarning { hasWarnings = true }
-                let warningSuffix = hasWarning ? "  ⚠" : ""
                 let item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-                let label = NSTextField(labelWithString: "\(source.name) Remaining: \(display)\(warningSuffix)")
-                label.font = NSFont.menuFont(ofSize: 0)
-                label.textColor = .labelColor
-                label.sizeToFit()
-                let container = NSView(frame: NSRect(x: 0, y: 0, width: label.frame.width + 28, height: label.frame.height + 4))
-                label.frame.origin = NSPoint(x: 14, y: 2)
-                container.addSubview(label)
-                item.view = container
+                item.view = sourceMenuView(source: source, hasWarning: hasWarning)
                 menu?.addItem(item)
             }
             if hasWarnings {
@@ -113,6 +104,63 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu?.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
     }
 
+    private func sourceMenuView(source: AISource, hasWarning: Bool) -> NSView {
+        let metrics = enabledMetrics(for: source)
+        let currentResults = results[source.name] ?? [:]
+        let warningSuffix = hasWarning ? "  ⚠" : ""
+
+        if source.usageMetrics.count <= 1 {
+            let metricId = metrics.first?.id ?? source.usageMetrics.first?.id ?? "default"
+            let display = loadingSources.contains(source.name)
+                ? loadingIndicator
+                : (currentResults[metricId] ?? SourceHealthStore.shared.health(for: source.name)?.lastSuccessfulUsage?.formatted ?? "N/A")
+            let label = NSTextField(labelWithString: "\(source.name) Remaining: \(display)\(warningSuffix)")
+            label.font = NSFont.menuFont(ofSize: 0)
+            label.textColor = .labelColor
+            label.sizeToFit()
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: label.frame.width + 28, height: label.frame.height + 4))
+            label.frame.origin = NSPoint(x: 14, y: 2)
+            container.addSubview(label)
+            return container
+        }
+
+        var labels: [NSTextField] = []
+        let sourceLabel = NSTextField(labelWithString: "\(source.name)\(warningSuffix)")
+        sourceLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        sourceLabel.textColor = .secondaryLabelColor
+        labels.append(sourceLabel)
+
+        if metrics.isEmpty {
+            let noMetricsLabel = NSTextField(labelWithString: "No metrics enabled")
+            noMetricsLabel.font = NSFont.menuFont(ofSize: 0)
+            noMetricsLabel.textColor = .secondaryLabelColor
+            labels.append(noMetricsLabel)
+        } else {
+            for metric in metrics {
+                let display = loadingSources.contains(source.name)
+                    ? loadingIndicator
+                    : (currentResults[metric.id] ?? "N/A")
+                let metricLabel = NSTextField(labelWithString: "\(metric.title) Remaining: \(display)")
+                metricLabel.font = NSFont.menuFont(ofSize: 0)
+                metricLabel.textColor = .labelColor
+                labels.append(metricLabel)
+            }
+        }
+
+        for label in labels { label.sizeToFit() }
+        let maxWidth = labels.map { $0.frame.width }.max() ?? 0
+        let lineHeight = (labels.map { $0.frame.height }.max() ?? 0) + 2
+        let height = CGFloat(labels.count) * lineHeight + 4
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: maxWidth + 28, height: height))
+        var y = height - lineHeight - 2
+        for label in labels {
+            label.frame.origin = NSPoint(x: 14, y: y)
+            container.addSubview(label)
+            y -= lineHeight
+        }
+        return container
+    }
+
     @objc func refreshClicked() {
         Task { await refresh() }
     }
@@ -136,11 +184,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var percentValues: [Double] = []
         var usageResults: [String: UsageResult] = [:]
 
-        await withTaskGroup(of: (String, Result<UsageResult, Error>).self) { group in
+        await withTaskGroup(of: (String, Result<[String: UsageResult], Error>).self) { group in
             for source in enabled {
                 group.addTask {
                     do {
-                        let usage = try await source.fetchUsage()
+                        let usage = try await source.fetchUsageByMetric()
                         return (source.name, .success(usage))
                     } catch {
                         return (source.name, .failure(error))
@@ -149,23 +197,54 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
 
             for await (name, result) in group {
+                guard let source = enabled.first(where: { $0.name == name }) else {
+                    loadingSources.remove(name)
+                    updateMenu()
+                    continue
+                }
                 switch result {
-                case let .success(usage):
-                    results[name] = usage.formatted
-                    SourceHealthStore.shared.recordSuccess(sourceName: name, usage: usage)
-                    usageResults[name] = usage
-                    let p = min(max(usage.percentRemaining, 0), 100)
-                    percentValues.append(p)
+                case let .success(metricUsages):
+                    let metricDisplays = metricUsages.mapValues { $0.formatted }
+                    results[name] = metricDisplays
+
+                    if source.usageMetrics.count > 1 {
+                        for metric in source.usageMetrics {
+                            guard let metricUsage = metricUsages[metric.id] else { continue }
+                            NotificationHistoryStore.shared.append(
+                                sourceName: metricHistorySeriesName(source: source, metric: metric),
+                                usage: metricUsage
+                            )
+                        }
+                    }
+
+                    let enabledMetricSet = Set(enabledMetrics(for: source).map(\.id))
+                    let usableMetricIds: [String]
+                    if enabledMetricSet.isEmpty {
+                        usableMetricIds = source.usageMetrics.map(\.id)
+                    } else {
+                        usableMetricIds = source.usageMetrics.map(\.id).filter { enabledMetricSet.contains($0) }
+                    }
+
+                    for metricId in usableMetricIds {
+                        guard let metricUsage = metricUsages[metricId] else { continue }
+                        let p = min(max(metricUsage.percentRemaining, 0), 100)
+                        percentValues.append(p)
+                    }
+
+                    if let primaryUsage = sourcePrimaryUsage(source: source, metricUsages: metricUsages) {
+                        SourceHealthStore.shared.recordSuccess(sourceName: name, usage: primaryUsage)
+                        usageResults[name] = primaryUsage
+                    }
                 case let .failure(error):
-                    guard let source = enabled.first(where: { $0.name == name }) else { break }
                     let presentation = source.mapFetchError(error)
                     SourceHealthStore.shared.recordFailure(sourceName: name, presentation: presentation)
                     if let previous = SourceHealthStore.shared.health(for: name)?.lastSuccessfulUsage {
-                        results[name] = previous.formatted
+                        let primaryMetricId = source.usageMetrics.first?.id ?? "default"
+                        results[name] = [primaryMetricId: previous.formatted]
                         let p = min(max(previous.percentRemaining, 0), 100)
                         percentValues.append(p)
                     } else {
-                        results[name] = "N/A"
+                        results[name] = [:]
                     }
                 }
                 loadingSources.remove(name)
@@ -199,6 +278,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         NotificationCenter.default.post(name: .aiDataRefreshed, object: nil)
+    }
+
+    private func enabledMetrics(for source: AISource) -> [AISourceMetric] {
+        source.usageMetrics.filter { SettingsStore.shared.isMetricEnabled(sourceName: source.name, metricId: $0.id) }
+    }
+
+    private func sourcePrimaryUsage(source: AISource, metricUsages: [String: UsageResult]) -> UsageResult? {
+        let enabledMetricIds = Set(enabledMetrics(for: source).map(\.id))
+        for metric in source.usageMetrics {
+            if !enabledMetricIds.isEmpty, !enabledMetricIds.contains(metric.id) {
+                continue
+            }
+            if let usage = metricUsages[metric.id] {
+                return usage
+            }
+        }
+        for metric in source.usageMetrics {
+            if let usage = metricUsages[metric.id] {
+                return usage
+            }
+        }
+        return metricUsages.values.first
+    }
+
+    private func metricHistorySeriesName(source: AISource, metric: AISourceMetric) -> String {
+        "\(source.name) - \(metric.title)"
     }
 
     /// Generate a template NSImage representing the brain with the bottom `percent` filled.

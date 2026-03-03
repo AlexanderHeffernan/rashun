@@ -1,8 +1,15 @@
 import Foundation
 
 struct GeminiSource: AISource {
-    let name = "Gemini 3 Pro"
-    let requirements = "Requires Gemini CLI with Google login and local credentials at ~/.gemini/oauth_creds.json. Tracks gemini-3-pro-preview usage."
+    let name = "Gemini"
+    let requirements = "Requires Gemini CLI with Google login and local credentials at ~/.gemini/oauth_creds.json."
+    let usageMetrics: [AISourceMetric] = [
+        AISourceMetric(id: "gemini-2.5-flash", title: "2.5-Flash"),
+        AISourceMetric(id: "gemini-2.5-flash-lite", title: "2.5-Flash-Lite"),
+        AISourceMetric(id: "gemini-2.5-pro", title: "2.5-Pro"),
+        AISourceMetric(id: "gemini-3-flash-preview", title: "3-Flash-Preview"),
+        AISourceMetric(id: "gemini-3-pro-preview", title: "3-Pro-Preview"),
+    ]
     let supportsPacingAlert = true
     func pacingLookbackStart(current: UsageResult, history: [UsageSnapshot], now: Date) -> Date? {
         current.cycleStartDate
@@ -10,10 +17,19 @@ struct GeminiSource: AISource {
 
     private let loadCodeAssistURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
     private let retrieveUserQuotaURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")!
-    private let primaryModelId = "gemini-3-pro-preview"
-    private let secondaryModelId = "gemini-3-pro-preview_vertex"
 
     func fetchUsage() async throws -> UsageResult {
+        let metricUsages = try await fetchUsageByMetric()
+        if let firstUsage = usageMetrics.compactMap({ metricUsages[$0.id] }).first {
+            return firstUsage
+        }
+        guard let usage = metricUsages.values.first else {
+            throw GeminiFetchError.noUsableQuotaBucket(modelId: usageMetrics.first?.id ?? "Gemini")
+        }
+        return usage
+    }
+
+    func fetchUsageByMetric() async throws -> [String: UsageResult] {
         let credentials = try readCredentials()
         let accessToken = try await validAccessToken(from: credentials)
 
@@ -25,11 +41,11 @@ struct GeminiSource: AISource {
         }
 
         let quotaResponse = try await retrieveUserQuota(accessToken: accessToken, projectId: projectId)
-        guard let usage = parseUsage(from: quotaResponse.buckets ?? []) else {
-            throw GeminiFetchError.noUsableQuotaBucket(modelId: primaryModelId)
+        let metricUsages = parseUsageByMetric(from: quotaResponse.buckets ?? [])
+        if metricUsages.isEmpty {
+            throw GeminiFetchError.noUsableQuotaBucket(modelId: usageMetrics.first?.id ?? "Gemini")
         }
-
-        return usage
+        return metricUsages
     }
 
     func mapFetchError(_ error: Error) -> SourceFetchErrorPresentation {
@@ -116,9 +132,24 @@ struct GeminiSource: AISource {
     }
 
     func parseUsage(from buckets: [GeminiQuotaBucket]) -> UsageResult? {
-        guard let bucket = selectPreferredBucket(from: buckets),
-              let fraction = bucket.remainingFraction,
-              fraction >= 0 else {
+        guard let bucket = selectPreferredBucket(from: buckets) else { return nil }
+        return parseUsage(from: bucket)
+    }
+
+    func parseUsageByMetric(from buckets: [GeminiQuotaBucket]) -> [String: UsageResult] {
+        var parsed: [String: UsageResult] = [:]
+        let expectedIds = Set(usageMetrics.map(\.id))
+        for bucket in buckets {
+            guard let modelId = bucket.modelId, expectedIds.contains(modelId) else { continue }
+            guard let usage = parseUsage(from: bucket) else { continue }
+            parsed[modelId] = usage
+        }
+
+        return parsed
+    }
+
+    private func parseUsage(from bucket: GeminiQuotaBucket) -> UsageResult? {
+        guard let fraction = bucket.remainingFraction, fraction >= 0 else {
             return nil
         }
         let resetDate = parseResetDate(bucket.resetTime)
@@ -141,14 +172,11 @@ struct GeminiSource: AISource {
     }
 
     func selectPreferredBucket(from buckets: [GeminiQuotaBucket]) -> GeminiQuotaBucket? {
-        if let primary = buckets.first(where: { $0.modelId == primaryModelId }) {
-            return primary
+        for metric in usageMetrics {
+            if let bucket = buckets.first(where: { $0.modelId == metric.id }) {
+                return bucket
+            }
         }
-
-        if let secondary = buckets.first(where: { $0.modelId == secondaryModelId }) {
-            return secondary
-        }
-
         return nil
     }
 

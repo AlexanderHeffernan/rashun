@@ -49,44 +49,49 @@ final class UsageHistoryViewModel: ObservableObject {
         let now = Date()
         let bounds = timeRange.rangeBounds(now: now)
         let showForecast = timeRange != .all
+        var seriesIndex = 0
 
-        for (index, source) in enabledSources.enumerated() {
-            let color = Self.palette[index % Self.palette.count]
-            let history = NotificationHistoryStore.shared.history(for: source.name)
-            let allPoints = history
-                .map { ChartPoint(date: $0.timestamp, value: $0.usage.percentRemaining) }
-                .sorted(by: { $0.date < $1.date })
-            var points = allPoints
+        for source in enabledSources {
+            let enabledMetrics = source.usageMetrics
+                .filter { SettingsStore.shared.isMetricEnabled(sourceName: source.name, metricId: $0.id) }
 
-            if let start = bounds.start {
-                points = points.filter { $0.date >= start }
-            }
-            if let end = bounds.end {
-                points = points.filter { $0.date <= end }
-            }
-
-            var sourceForecastPoints: [ChartPoint] = []
-            if showForecast,
-               let current = history.last?.usage,
-               let forecast = source.forecast(current: current, history: history) {
-                sourceForecastPoints = forecast.points
-                    .map { ChartPoint(date: $0.date, value: $0.value) }
-                    .sorted(by: { $0.date < $1.date })
-                if let start = bounds.start {
-                    sourceForecastPoints = sourceForecastPoints.filter { $0.date >= start }
+            if source.usageMetrics.count <= 1 {
+                let color = Self.palette[seriesIndex % Self.palette.count]
+                seriesIndex += 1
+                let history = NotificationHistoryStore.shared.history(for: source.name)
+                let points = filterPoints(history, bounds: bounds)
+                let forecastPoints = filteredForecastPoints(source: source, history: history, points: points, bounds: bounds, showForecast: showForecast)
+                if showForecast, let current = history.last?.usage, let forecast = source.forecast(current: current, history: history) {
+                    summaries.append(forecast.summary)
                 }
-                if let end = bounds.end {
-                    sourceForecastPoints = sourceForecastPoints.filter { $0.date <= end }
-                }
-                if let lastActual = points.last,
-                   let firstForecast = sourceForecastPoints.first,
-                   firstForecast.date > lastActual.date {
-                    sourceForecastPoints.insert(lastActual, at: 0)
-                }
-                summaries.append(forecast.summary)
+                chartSeries.append(ChartSeries(label: source.name, color: color, points: points, forecast: forecastPoints))
+                continue
             }
 
-            chartSeries.append(ChartSeries(label: source.name, color: color, points: points, forecast: sourceForecastPoints))
+            for metric in enabledMetrics {
+                let color = Self.palette[seriesIndex % Self.palette.count]
+                seriesIndex += 1
+                var history = NotificationHistoryStore.shared.history(for: metricHistorySeriesName(source: source, metric: metric))
+                if history.isEmpty, metric.id == source.usageMetrics.first?.id {
+                    history = NotificationHistoryStore.shared.history(for: source.name)
+                }
+
+                let points = filterPoints(history, bounds: bounds)
+                let forecastPoints = filteredForecastPoints(source: source, history: history, points: points, bounds: bounds, showForecast: showForecast)
+
+                if showForecast, let current = history.last?.usage, let forecast = source.forecast(current: current, history: history) {
+                    summaries.append(forecastSummary(label: "\(source.name) - \(metric.title)", original: forecast.summary))
+                }
+
+                chartSeries.append(
+                    ChartSeries(
+                        label: "\(source.name) - \(metric.title)",
+                        color: color,
+                        points: points,
+                        forecast: forecastPoints
+                    )
+                )
+            }
         }
 
         series = chartSeries
@@ -95,5 +100,63 @@ final class UsageHistoryViewModel: ObservableObject {
         summaryLines = summaries
         visibleStartDate = bounds.start
         visibleEndDate = bounds.end
+    }
+
+    private func metricHistorySeriesName(source: AISource, metric: AISourceMetric) -> String {
+        "\(source.name) - \(metric.title)"
+    }
+
+    private func filterPoints(_ history: [UsageSnapshot], bounds: (start: Date?, end: Date?)) -> [ChartPoint] {
+        var points = history
+            .map { ChartPoint(date: $0.timestamp, value: $0.usage.percentRemaining) }
+            .sorted(by: { $0.date < $1.date })
+
+        if let start = bounds.start {
+            points = points.filter { $0.date >= start }
+        }
+        if let end = bounds.end {
+            points = points.filter { $0.date <= end }
+        }
+
+        return points
+    }
+
+    private func filteredForecastPoints(
+        source: AISource,
+        history: [UsageSnapshot],
+        points: [ChartPoint],
+        bounds: (start: Date?, end: Date?),
+        showForecast: Bool
+    ) -> [ChartPoint] {
+        guard showForecast,
+              let current = history.last?.usage,
+              let forecast = source.forecast(current: current, history: history) else {
+            return []
+        }
+
+        var sourceForecastPoints = forecast.points
+            .map { ChartPoint(date: $0.date, value: $0.value) }
+            .sorted(by: { $0.date < $1.date })
+
+        if let start = bounds.start {
+            sourceForecastPoints = sourceForecastPoints.filter { $0.date >= start }
+        }
+        if let end = bounds.end {
+            sourceForecastPoints = sourceForecastPoints.filter { $0.date <= end }
+        }
+        if let lastActual = points.last,
+           let firstForecast = sourceForecastPoints.first,
+           firstForecast.date > lastActual.date {
+            sourceForecastPoints.insert(lastActual, at: 0)
+        }
+
+        return sourceForecastPoints
+    }
+
+    private func forecastSummary(label: String, original: String) -> String {
+        if let separatorRange = original.range(of: ":") {
+            return "\(label)\(original[separatorRange.lowerBound...])"
+        }
+        return "\(label): \(original)"
     }
 }

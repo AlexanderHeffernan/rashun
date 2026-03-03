@@ -4,14 +4,14 @@ import XCTest
 final class GeminiSourceTests: XCTestCase {
     let source = GeminiSource()
 
-    func testSelectPreferredBucket_prefersGemini3ProPreview() {
+    func testSelectPreferredBucket_prefersFirstConfiguredMetric() {
         let buckets = [
             GeminiQuotaBucket(remainingAmount: "100", remainingFraction: 0.5, resetTime: nil, tokenType: nil, modelId: "gemini-3-flash-preview"),
-            GeminiQuotaBucket(remainingAmount: "200", remainingFraction: 0.4, resetTime: nil, tokenType: nil, modelId: "gemini-3-pro-preview"),
+            GeminiQuotaBucket(remainingAmount: "200", remainingFraction: 0.4, resetTime: nil, tokenType: nil, modelId: "gemini-2.5-flash"),
         ]
 
         let selected = source.selectPreferredBucket(from: buckets)
-        XCTAssertEqual(selected?.modelId, "gemini-3-pro-preview")
+        XCTAssertEqual(selected?.modelId, "gemini-2.5-flash")
     }
 
     func testParseUsage_usesPrimaryProPreviewBucket() {
@@ -37,10 +37,10 @@ final class GeminiSourceTests: XCTestCase {
         XCTAssertNotNil(usage!.resetDate)
     }
 
-    func testParseUsage_returnsNilWhenOnlyNonTargetModelsExist() {
+    func testParseUsage_returnsNilWhenOnlyUnknownModelsExist() {
         let buckets = [
-            GeminiQuotaBucket(remainingAmount: nil, remainingFraction: 0.90, resetTime: nil, tokenType: "REQUESTS", modelId: "gemini-3-flash-preview"),
-            GeminiQuotaBucket(remainingAmount: nil, remainingFraction: 0.80, resetTime: nil, tokenType: "REQUESTS", modelId: "gemini-2.5-pro"),
+            GeminiQuotaBucket(remainingAmount: nil, remainingFraction: 0.90, resetTime: nil, tokenType: "REQUESTS", modelId: "gemini-unknown-a"),
+            GeminiQuotaBucket(remainingAmount: nil, remainingFraction: 0.80, resetTime: nil, tokenType: "REQUESTS", modelId: "gemini-unknown-b"),
         ]
 
         XCTAssertNil(source.parseUsage(from: buckets))

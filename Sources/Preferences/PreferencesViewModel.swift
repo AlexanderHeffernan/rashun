@@ -31,6 +31,7 @@ final class PreferencesViewModel: ObservableObject {
         sources = newSources
         settings.ensureSources(newSources.map { $0.name })
         for source in newSources {
+            settings.ensureSourceMetrics(source: source)
             settings.ensureNotificationRules(source: source)
             if !settings.isEnabled(sourceName: source.name) { expandedSources.remove(source.name) }
             seedRuleInputDrafts(for: source)
@@ -45,6 +46,14 @@ final class PreferencesViewModel: ObservableObject {
         guard !enabled else { pendingEnableSource = source; return }
         expandedSources.remove(source.name)
         settings.setEnabled(false, for: source.name)
+    }
+
+    func isMetricEnabled(sourceName: String, metricId: String) -> Bool {
+        settings.isMetricEnabled(sourceName: sourceName, metricId: metricId)
+    }
+
+    func setMetricEnabled(sourceName: String, metricId: String, enabled: Bool) {
+        settings.setMetricEnabled(enabled, sourceName: sourceName, metricId: metricId)
     }
 
     func confirmEnableSource() {

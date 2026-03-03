@@ -6,11 +6,13 @@ final class SettingsStore {
     private init() { load() }
 
     private let userDefaultsKey = "ai.sourceSettings.v1"
+    private let sourceMetricSettingsKey = "ai.sourceMetricSettings.v1"
     private let notificationDefaultsKey = "ai.notificationSettings.v1"
     private let notificationStateKey = "ai.notificationState.v1"
     private let pollIntervalKey = "ai.pollIntervalSeconds.v1"
     private let autoUpdateCheckKey = "ai.autoUpdateCheck.v1"
     private var enabledMap: [String: Bool] = [:]
+    private var sourceMetricEnabledMap: [String: [String: Bool]] = [:]
     private var notificationSettings: [String: [NotificationRuleSetting]] = [:]
     private var notificationState: [String: NotificationRuleState] = [:]
 
@@ -21,6 +23,10 @@ final class SettingsStore {
         guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else { return }
         if let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
             enabledMap = decoded
+        }
+        if let metricData = UserDefaults.standard.data(forKey: sourceMetricSettingsKey),
+           let decodedMetricSettings = try? JSONDecoder().decode([String: [String: Bool]].self, from: metricData) {
+            sourceMetricEnabledMap = decodedMetricSettings
         }
 
         if let settingsData = UserDefaults.standard.data(forKey: notificationDefaultsKey),
@@ -53,6 +59,9 @@ final class SettingsStore {
         if let data = try? JSONEncoder().encode(enabledMap) {
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
         }
+        if let data = try? JSONEncoder().encode(sourceMetricEnabledMap) {
+            UserDefaults.standard.set(data, forKey: sourceMetricSettingsKey)
+        }
 
         if let data = try? JSONEncoder().encode(notificationSettings) {
             UserDefaults.standard.set(data, forKey: notificationDefaultsKey)
@@ -79,6 +88,32 @@ final class SettingsStore {
             enabledMap[name] = false
         }
         save()
+    }
+
+    func ensureSourceMetrics(source: AISource) {
+        let metricSettings = sourceMetricEnabledMap[source.name] ?? [:]
+        var updated: [String: Bool] = [:]
+        for metric in source.usageMetrics {
+            if let existing = metricSettings[metric.id] {
+                updated[metric.id] = existing
+            } else {
+                updated[metric.id] = metric.defaultEnabled
+            }
+        }
+        sourceMetricEnabledMap[source.name] = updated
+        save()
+    }
+
+    func isMetricEnabled(sourceName: String, metricId: String) -> Bool {
+        sourceMetricEnabledMap[sourceName]?[metricId] ?? true
+    }
+
+    func setMetricEnabled(_ enabled: Bool, sourceName: String, metricId: String) {
+        var metricSettings = sourceMetricEnabledMap[sourceName] ?? [:]
+        metricSettings[metricId] = enabled
+        sourceMetricEnabledMap[sourceName] = metricSettings
+        save()
+        NotificationCenter.default.post(name: .aiSettingsChanged, object: nil)
     }
 
     func pollInterval() -> TimeInterval {
