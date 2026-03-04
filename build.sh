@@ -21,13 +21,17 @@ fi
 
 # Build release binary
 swift build -c release
+BIN_DIR=$(swift build -c release --show-bin-path)
 
 # Package app bundle
 rm -rf Rashun.app
 mkdir -p Rashun.app/Contents/{MacOS,Resources}
-cp .build/release/Rashun Rashun.app/Contents/MacOS/Rashun
+cp "$BIN_DIR/Rashun" Rashun.app/Contents/MacOS/Rashun
 cp Info.plist Rashun.app/Contents/
 cp AppIcon.icns Rashun.app/Contents/Resources/
+
+# Copy SwiftPM resource bundles (required for SourceLogos and other packaged assets).
+find "$BIN_DIR" -maxdepth 1 -type d -name "*.bundle" -exec cp -R {} Rashun.app/Contents/Resources/ \;
 
 # Code sign
 codesign --force --deep --sign - --entitlements Rashun.entitlements Rashun.app
