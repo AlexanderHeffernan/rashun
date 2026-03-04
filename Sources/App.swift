@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import UserNotifications
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -27,6 +28,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var lastRefreshDate: Date?
 
     func applicationDidFinishLaunching(_: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
@@ -88,7 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu?.removeAllItems()
         let enabled = sources.filter { SettingsStore.shared.isEnabled(sourceName: $0.name) }
         if enabled.isEmpty {
-            menu?.addItem(withTitle: "No sources enabled — open Preferences...", action: #selector(showPreferences), keyEquivalent: "")
+            menu?.addItem(withTitle: "No sources enabled — open Preferences...", action: #selector(AppDelegate.showPreferences), keyEquivalent: "")
         } else {
             var hasWarnings = false
             for (index, source) in enabled.enumerated() {
@@ -121,7 +124,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu?.addItem(withTitle: "Usage History...", action: #selector(showChart), keyEquivalent: "")
 
         menu?.addItem(NSMenuItem.separator())
-        menu?.addItem(withTitle: "Preferences...", action: #selector(showPreferences), keyEquivalent: ",")
+        menu?.addItem(withTitle: "Preferences...", action: #selector(AppDelegate.showPreferences), keyEquivalent: ",")
         menu?.addItem(NSMenuItem.separator())
         menu?.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q")
     }
@@ -198,7 +201,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func showPreferences() {
+        openPreferences(tab: nil)
+    }
+
+    func openPreferences(tab: PreferencesTab?) {
         PreferencesWindowController.shared.configure(withSources: sources)
+        if let tab {
+            PreferencesWindowController.shared.selectTab(tab)
+        }
         PreferencesWindowController.shared.showWindowAndBringToFront()
     }
 
@@ -694,7 +704,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
                     let state = SettingsStore.shared.ruleState(sourceName: scopedName, ruleId: ruleId)
                     if shouldSend(event: event, state: state) {
-                        NotificationManager.shared.sendNotification(title: event.title, body: event.body)
+                        NotificationManager.shared.sendNotification(
+                            title: event.title,
+                            body: event.body,
+                            route: .usageHistory
+                        )
                         let newState = NotificationRuleState(lastFiredAt: Date(), lastFiredCycleKey: event.cycleKey)
                         SettingsStore.shared.setRuleState(newState, sourceName: scopedName, ruleId: ruleId)
                     }
@@ -820,6 +834,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return MetricFetchResult(usages: usages, errorsByMetric: errorsByMetric)
     }
 
+}
+
+@MainActor
+extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        defer { completionHandler() }
+
+        guard let route = NotificationManager.shared.route(for: response.notification.request.content.userInfo) else {
+            return
+        }
+
+        switch route {
+        case .usageHistory:
+            showChart()
+        case .preferencesUpdates:
+            openPreferences(tab: .updates)
+        }
+    }
 }
 
 func shouldSendNotification(event: NotificationEvent, state: NotificationRuleState?) -> Bool {

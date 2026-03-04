@@ -22,6 +22,7 @@ final class PreferencesViewModel: ObservableObject {
     @Published var expandedSources: Set<String> = []
     @Published var pendingEnableSource: AISource?
     @Published var showInstallConfirmation = false
+    @Published var selectedTab: PreferencesTab = .general
     @Published var pollMinutesText = ""
     @Published var ruleInputDrafts: [String: String] = [:]
     @Published private(set) var checkNowEnabled = true
@@ -274,6 +275,10 @@ final class PreferencesViewModel: ObservableObject {
     func installUpdate() {
         updates.installUpdate()
         showInstallConfirmation = false
+    }
+
+    func selectTab(_ tab: PreferencesTab) {
+        selectedTab = tab
     }
 
     var updateStatusColor: Color {

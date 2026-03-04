@@ -9,7 +9,6 @@ enum PreferencesTab: String, CaseIterable, Hashable {
 
 struct PreferencesRootView: View {
     @ObservedObject var model: PreferencesViewModel
-    @State private var selectedTab: PreferencesTab = .general
 
     var body: some View {
         ZStack {
@@ -107,7 +106,7 @@ struct PreferencesRootView: View {
         HStack {
             BrandSegmentedControl(
                 options: PreferencesTab.allCases,
-                selection: $selectedTab,
+                selection: $model.selectedTab,
                 label: { $0.rawValue }
             )
             Spacer()
@@ -116,7 +115,7 @@ struct PreferencesRootView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        switch selectedTab {
+        switch model.selectedTab {
         case .general:
             GeneralTabView(model: model)
         case .sources:

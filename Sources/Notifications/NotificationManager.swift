@@ -3,6 +3,13 @@ import UserNotifications
 
 @MainActor
 final class NotificationManager {
+    enum Route: String {
+        case usageHistory
+        case preferencesUpdates
+    }
+
+    private static let routeUserInfoKey = "rashun.notification.route"
+
     static let shared = NotificationManager()
     private init() {}
 
@@ -18,12 +25,13 @@ final class NotificationManager {
         }
     }
 
-    /// Send a simple notification with title and body.
-    func sendNotification(title: String, body: String) {
+    /// Send a simple notification with title/body and a route used when the user clicks it.
+    func sendNotification(title: String, body: String, route: Route) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
+        content.userInfo = [Self.routeUserInfoKey: route.rawValue]
 
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
@@ -31,5 +39,12 @@ final class NotificationManager {
                 print("Failed to schedule notification: \(error)")
             }
         }
+    }
+
+    func route(for userInfo: [AnyHashable: Any]) -> Route? {
+        guard let rawValue = userInfo[Self.routeUserInfoKey] as? String else {
+            return nil
+        }
+        return Route(rawValue: rawValue)
     }
 }

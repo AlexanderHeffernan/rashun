@@ -65,7 +65,8 @@ final class UpdateManager {
         if isNew && notify {
             NotificationManager.shared.sendNotification(
                 title: "Rashun Update Available",
-                body: "Version \(version) is available. You're on \(currentVersion). Open Settings to install."
+                body: "Version \(version) is available. You're on \(currentVersion). Open Settings to install.",
+                route: .preferencesUpdates
             )
         }
         return isNew

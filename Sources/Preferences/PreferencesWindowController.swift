@@ -36,6 +36,10 @@ final class PreferencesWindowController: NSWindowController, NSWindowDelegate {
         viewModel.configure(withSources: sources)
     }
 
+    func selectTab(_ tab: PreferencesTab) {
+        viewModel.selectTab(tab)
+    }
+
     func windowWillClose(_ notification: Notification) {
         _ = notification
         window?.makeFirstResponder(nil)

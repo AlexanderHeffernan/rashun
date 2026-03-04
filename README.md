@@ -169,25 +169,3 @@ Some ideas for contributions:
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-
-## TODO
-- [X] Add app icon
-- [X] Add launch-at-login support
-- [X] ~~Need to fix start-up alert (“Rashun.app” would like to access files on a network volume.) – Likely fix is just to move the app bundle to /Applications instead of running from the project directory. Edit: Just installed to /Applications and it doesn't seem to have fixed the issue. Will need to investigate further.~~ Seems to just be an issue with the Amp source, will just have to leave it for now.
-- [X] Set up a testing framework and add unit tests
-- [X] Set up a CI/CD pipeline (GitHub Actions)
-- [X] Add an easier install path (no clone/build required), with optional auto-update support
-- [X] Auto-update support 
-- [X] Better timezone handling, don't show UTC times to users in other timezones. Edit: Was a copilot source issue, fixed by converting to local timezone before storing usage events.
-- [X] Evaluate AppKit vs SwiftUI trade-offs (AppKit currently gives better menu bar/notification control)
-- [X] ~~Add macOS widgets~~ (would be a nice-to-have, but requires use of Xcode which I'm trying to avoid)
-- [X] Improve data management (export/import usage data, delete stored data)
-- [X] Improve error handling and user feedback (e.g., warning icon or alert when usage fetch fails)
-- [X] Add source health checks when enabling a source
-- [X] Do we need improved handling of my complex AI Sources with multiple usage quotas?
-- [X] Show/hide lines on Usage History chart
-- [X] Fix bug where if data isn't changing in a source, it skips storage of the usage event. It should instead replace the last stored event with the new one, so that the history is accurate even when usage isn't changing. If no changes are occuring, need to save the first occurance and the latest occurance.
-- [X] Improved notification/warning UI/handling for multi-metric sources. Should be able to configure notifications for specific metrics.
-- [X] Improve aesthetic of menu icon and dropdown. Make it more intuitive and visually appealing. Also, add personalisation settings.
-- [ ] Improve interactiveness of the notifications
-- [ ] Final cleanup and code documentation
