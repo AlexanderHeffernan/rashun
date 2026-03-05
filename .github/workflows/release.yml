@@ -61,6 +61,41 @@ jobs:
       - name: Build app
         run: ./build.sh
 
+      - name: Smoke test app launch
+        run: |
+          set -euo pipefail
+
+          BEFORE_LIST="$(mktemp)"
+          AFTER_LIST="$(mktemp)"
+          ls -1 ~/Library/Logs/DiagnosticReports/Rashun-*.ips 2>/dev/null | sort > "$BEFORE_LIST" || true
+
+          ./Rashun.app/Contents/MacOS/Rashun >/tmp/rashun-smoke.stdout 2>/tmp/rashun-smoke.stderr &
+          APP_PID=$!
+
+          sleep 6
+
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "Rashun exited during smoke test."
+            echo "--- stdout ---"
+            cat /tmp/rashun-smoke.stdout || true
+            echo "--- stderr ---"
+            cat /tmp/rashun-smoke.stderr || true
+
+            ls -1 ~/Library/Logs/DiagnosticReports/Rashun-*.ips 2>/dev/null | sort > "$AFTER_LIST" || true
+            NEW_REPORTS="$(comm -13 "$BEFORE_LIST" "$AFTER_LIST" || true)"
+            if [ -n "$NEW_REPORTS" ]; then
+              echo "--- New Rashun crash report(s) ---"
+              echo "$NEW_REPORTS"
+              LATEST_REPORT="$(echo "$NEW_REPORTS" | tail -1)"
+              sed -n '1,220p' "$LATEST_REPORT" || true
+            fi
+
+            exit 1
+          fi
+
+          kill "$APP_PID" 2>/dev/null || true
+          wait "$APP_PID" 2>/dev/null || true
+
       - name: Zip app bundle
         run: zip -r Rashun.zip Rashun.app
 
