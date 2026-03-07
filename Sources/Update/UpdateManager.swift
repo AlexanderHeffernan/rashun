@@ -6,13 +6,22 @@ final class UpdateManager {
 
     private let repo = "alexanderheffernan/rashun"
     private let checkInterval: TimeInterval = 6 * 60 * 60 // 6 hours
-    private var timer: Timer?
+    private var lastCheckAttemptDate: Date?
+
+    // Internal test seams for deterministic unit testing.
+    var nowProvider: () -> Date = Date.init
+    var dueCheckRunner: ((Bool) async -> Bool)?
+    var autoUpdateCheckEnabledOverride: Bool?
 
     private(set) var availableVersion: String?
     private(set) var isChecking = false
     private(set) var isInstalling = false
 
     private init() {}
+
+    var checkIntervalSecondsForTesting: TimeInterval {
+        checkInterval
+    }
 
     /// Current app version from the bundle's Info.plist.
     var currentVersion: String {
@@ -25,25 +34,40 @@ final class UpdateManager {
         return compareVersions(available, isNewerThan: currentVersion)
     }
 
-    /// Start the periodic update check timer. Call once on launch.
+    /// Start update checks and perform an immediate check if enabled.
     func startPeriodicChecks() {
-        guard SettingsStore.shared.autoUpdateCheckEnabled else { return }
+        guard autoUpdateChecksEnabled else { return }
+        lastCheckAttemptDate = nil
         Task { await checkForUpdate(notify: true) }
-        scheduleTimer()
-    }
-
-    func scheduleTimer() {
-        timer?.invalidate()
-        guard SettingsStore.shared.autoUpdateCheckEnabled else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: checkInterval, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in await self.checkForUpdate(notify: true) }
-        }
+        lastCheckAttemptDate = nowProvider()
     }
 
     func stopPeriodicChecks() {
-        timer?.invalidate()
-        timer = nil
+        lastCheckAttemptDate = nil
+    }
+
+    /// Called from the main poll cycle; checks for updates only when the interval has elapsed.
+    @discardableResult
+    func checkForUpdateIfDue(notify: Bool = true) async -> Bool {
+        guard autoUpdateChecksEnabled else { return false }
+        let now = nowProvider()
+        if let lastCheckAttemptDate,
+           now.timeIntervalSince(lastCheckAttemptDate) < checkInterval {
+            return false
+        }
+
+        lastCheckAttemptDate = now
+        if let dueCheckRunner {
+            return await dueCheckRunner(notify)
+        }
+        return await checkForUpdate(notify: notify)
+    }
+
+    func resetTestingState() {
+        nowProvider = Date.init
+        dueCheckRunner = nil
+        autoUpdateCheckEnabledOverride = nil
+        lastCheckAttemptDate = nil
     }
 
     /// Check GitHub for the latest release. If `notify` is true, sends a macOS notification when a new version is found.
@@ -104,6 +128,10 @@ final class UpdateManager {
     }
 
     // MARK: - Private
+
+    private var autoUpdateChecksEnabled: Bool {
+        autoUpdateCheckEnabledOverride ?? SettingsStore.shared.autoUpdateCheckEnabled
+    }
 
     private func fetchLatestVersion() async -> String? {
         let urlString = "https://api.github.com/repos/\(repo)/releases/latest"

@@ -26,6 +26,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var latestUsageResults: [String: [String: UsageResult]] = [:]
     var loadingSources: Set<String> = []
     var lastRefreshDate: Date?
+    private var isSleepSuspended = false
+    private var isLockSuspended = false
+    private var lastResumeRefreshTriggerDate: Date?
+    private let resumeRefreshDebounceSeconds: TimeInterval = 8
+
+    private var isPollingSuspended: Bool {
+        isSleepSuspended || isLockSuspended
+    }
 
     func applicationDidFinishLaunching(_: Notification) {
         UNUserNotificationCenter.current().delegate = self
@@ -42,6 +50,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem?.menu = menu
 
         NotificationCenter.default.addObserver(self, selector: #selector(settingsChanged(_:)), name: .aiSettingsChanged, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleWillSleep), name: NSWorkspace.willSleepNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(handleDidWake), name: NSWorkspace.didWakeNotification, object: nil)
+
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleScreenLocked),
+            name: Notification.Name("com.apple.screenIsLocked"),
+            object: nil
+        )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleScreenUnlocked),
+            name: Notification.Name("com.apple.screenIsUnlocked"),
+            object: nil
+        )
 
         SettingsStore.shared.ensureSources(sources.map { $0.name })
         for source in sources {
@@ -69,14 +92,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         Task {
             _ = await NotificationManager.shared.requestAuthorization()
-            await refresh()
             UpdateManager.shared.startPeriodicChecks()
+            await refresh()
         }
 
-        pollTimer = Timer.scheduledTimer(withTimeInterval: SettingsStore.shared.pollInterval(), repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in await self.refresh() }
-        }
+        schedulePollTimer()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -193,6 +219,50 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func refreshClicked() {
         Task { await refresh() }
+    }
+
+    @objc private func handleWillSleep(_: Notification) {
+        isSleepSuspended = true
+    }
+
+    @objc private func handleDidWake(_: Notification) {
+        isSleepSuspended = false
+        triggerResumeRefreshIfNeeded()
+    }
+
+    @objc private func handleScreenLocked(_: Notification) {
+        isLockSuspended = true
+    }
+
+    @objc private func handleScreenUnlocked(_: Notification) {
+        isLockSuspended = false
+        triggerResumeRefreshIfNeeded()
+    }
+
+    private func triggerResumeRefreshIfNeeded() {
+        guard !isPollingSuspended else { return }
+        guard loadingSources.isEmpty else { return }
+        if let lastTrigger = lastResumeRefreshTriggerDate,
+           Date().timeIntervalSince(lastTrigger) < resumeRefreshDebounceSeconds {
+            return
+        }
+        lastResumeRefreshTriggerDate = Date()
+        Task {
+            await refresh()
+            _ = await UpdateManager.shared.checkForUpdateIfDue(notify: true)
+        }
+    }
+
+    private func schedulePollTimer() {
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: SettingsStore.shared.pollInterval(), repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                guard !self.isPollingSuspended else { return }
+                await self.refresh()
+                _ = await UpdateManager.shared.checkForUpdateIfDue(notify: true)
+            }
+        }
     }
 
     @objc func showChart() {
@@ -327,11 +397,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateMenu()
         updateStatusIcon()
 
-        pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: SettingsStore.shared.pollInterval(), repeats: true) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in await self.refresh() }
-        }
+        schedulePollTimer()
     }
 
     private struct IconRingMetric {
