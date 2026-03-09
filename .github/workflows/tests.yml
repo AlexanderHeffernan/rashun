@@ -18,10 +18,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Swift
+      - name: Setup Swift (macOS/Linux)
+        if: runner.os != 'Windows'
         uses: swift-actions/setup-swift@v3
         with:
           swift-version: "6.2.4"
+
+      - name: Setup Swift (Windows)
+        if: runner.os == 'Windows'
+        uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.2.4-release
+          tag: 6.2.4-RELEASE
 
       - name: Run tests
         run: swift test
@@ -29,7 +37,7 @@ jobs:
       - name: Build CLI
         run: swift build --product RashunCLI
 
-      - name: CLI smoke test (Unix)
+      - name: CLI smoke test (macOS/Linux)
         if: runner.os != 'Windows'
         run: |
           set -euo pipefail
