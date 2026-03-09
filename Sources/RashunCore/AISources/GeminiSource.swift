@@ -328,10 +328,14 @@ public struct GeminiSource: AISource {
         let candidatePaths = [
             "/opt/homebrew/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
             "/usr/local/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+            "~/.nvm/versions/node/current/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+            "~/.local/share/pnpm/global/5/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js",
+            "~\\AppData\\Roaming\\npm\\node_modules\\@google\\gemini-cli\\node_modules\\@google\\gemini-cli-core\\dist\\src\\code_assist\\oauth2.js",
         ]
 
         for path in candidatePaths {
-            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            let expanded = NSString(string: path).expandingTildeInPath
+            guard let text = try? String(contentsOfFile: expanded, encoding: .utf8) else { continue }
             guard let id = captureFirst(in: text, pattern: #"const\s+OAUTH_CLIENT_ID\s*=\s*'([^']+)'"#),
                   let secret = captureFirst(in: text, pattern: #"const\s+OAUTH_CLIENT_SECRET\s*=\s*'([^']+)'"#),
                   !id.isEmpty, !secret.isEmpty else {

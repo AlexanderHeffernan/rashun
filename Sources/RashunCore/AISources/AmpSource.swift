@@ -2,7 +2,7 @@ import Foundation
 
 public struct AmpSource: AISource {
     public let name = "AMP"
-    public let requirements = "Requires the amp CLI installed at ~/.amp/bin/amp and executable."
+    public let requirements = "Requires the amp CLI installed and available on PATH (or at ~/.amp/bin/amp)."
     public let metrics = [AISourceMetric(id: "amp-free", title: "AMP")]
     public let menuBarBrandColorHex: UInt32 = 0xF34E3F
 
@@ -66,7 +66,16 @@ public struct AmpSource: AISource {
     }
 
     private func runCommand() throws -> String {
-        let executablePath = NSHomeDirectory() + "/.amp/bin/amp"
+        let defaultPath = NSHomeDirectory() + "/.amp/bin/amp"
+        let executablePath = ExecutableLocator.resolve(
+            command: "amp",
+            additionalCandidates: [
+                NSHomeDirectory() + "/.amp/bin",
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "~/.local/bin"
+            ]
+        ) ?? defaultPath
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = ["usage"]

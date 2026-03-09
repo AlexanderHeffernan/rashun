@@ -2,7 +2,7 @@ import Foundation
 
 public struct CopilotSource: AISource {
     public let name = "Copilot"
-    public let requirements = "Requires GitHub CLI 'gh' configured and authenticated (used to fetch auth token)."
+    public let requirements = "Requires GitHub CLI 'gh' configured, authenticated, and available on PATH (used to fetch auth token)."
     public let metrics = [AISourceMetric(id: "copilot-premium-interactions", title: "Copilot")]
     public let menuBarBrandColorHex: UInt32 = 0xFFFFFF
 
@@ -68,7 +68,7 @@ public struct CopilotSource: AISource {
             case let .ghNotInstalled(path):
                 return SourceFetchErrorPresentation(
                     shortMessage: "GitHub CLI not found",
-                    detailedMessage: "GitHub CLI (`gh`) was not found at \(path). Install `gh` and run `gh auth login`, then try again."
+                    detailedMessage: "GitHub CLI (`gh`) was not found (\(path)). Install `gh`, ensure it is available on PATH, and run `gh auth login`, then try again."
                 )
             case let .ghCommandFailed(exitCode, stderr):
                 return SourceFetchErrorPresentation(
@@ -108,7 +108,7 @@ public struct CopilotSource: AISource {
         if nsError.domain == NSPOSIXErrorDomain, nsError.code == 2 {
             return SourceFetchErrorPresentation(
                 shortMessage: "GitHub CLI not found",
-                detailedMessage: "GitHub CLI (`gh`) was not found at /opt/homebrew/bin/gh. Install `gh` and run `gh auth login`, then try again."
+                detailedMessage: "GitHub CLI (`gh`) was not found in PATH. Install `gh`, ensure it is available on your shell PATH, and run `gh auth login`, then try again."
             )
         }
 
@@ -202,7 +202,16 @@ public struct CopilotSource: AISource {
     }
 
     private func getGhAuthToken() throws -> String {
-        let ghPath = "/opt/homebrew/bin/gh"
+        guard let ghPath = ExecutableLocator.resolve(
+            command: "gh",
+            additionalCandidates: [
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "~/.local/bin"
+            ]
+        ) else {
+            throw CopilotFetchError.ghNotInstalled(path: "PATH")
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ghPath)
         process.arguments = ["auth", "token"]
@@ -218,7 +227,7 @@ public struct CopilotSource: AISource {
         } catch {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileNoSuchFileError {
-                throw CopilotFetchError.ghNotInstalled(path: ghPath)
+                throw CopilotFetchError.ghNotInstalled(path: "gh (not found in PATH)")
             }
             throw error
         }

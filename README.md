@@ -33,6 +33,12 @@ As a student relying on the free tiers of multiple AI coding tools, I kept runni
 curl -fsSL https://raw.githubusercontent.com/alexanderheffernan/rashun/main/install.sh | bash
 ```
 
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/alexanderheffernan/rashun/main/scripts/install/windows.ps1 | iex
+```
+
 ---
 
 <table>
@@ -89,15 +95,16 @@ Rashun polls each enabled source on a timer. For each source, it fetches current
 
 ## Prerequisites
 
-- **macOS 14+** (Sonoma or later)
-- **Swift 6.2+** toolchain (ships with recent Xcode versions) — only needed if building from source
+- **macOS 14+** for the desktop app
+- **Linux/Windows/macOS** for CLI usage
+- **Swift 6.2+** toolchain (only needed if building from source)
 
 Each source has its own requirements:
 
 | Source | What you need |
 |---|---|
-| **Amp** | [Amp CLI](https://ampcode.com) installed at `~/.amp/bin/amp` |
-| **Copilot** | [GitHub CLI (`gh`)](https://cli.github.com/) installed and authenticated (`gh auth login`) |
+| **Amp** | [Amp CLI](https://ampcode.com) installed and available on PATH (or at `~/.amp/bin/amp`) |
+| **Copilot** | [GitHub CLI (`gh`)](https://cli.github.com/) installed, authenticated (`gh auth login`), and available on PATH |
 | **Codex** | Codex app/CLI installed with local session logs in `~/.codex/sessions` |
 | **Gemini** | Gemini CLI installed and authenticated (credentials at `~/.gemini/oauth_creds.json`) |
 
@@ -107,13 +114,25 @@ You only need the prerequisites for the sources you enable — Rashun won't comp
 
 ## Installation
 
-### Quick Install
+### Quick Install (macOS app)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alexanderheffernan/rashun/main/install.sh | bash
 ```
 
 This downloads the latest release from GitHub, installs it to `/Applications`, and clears macOS quarantine flags. To update, run the same command again — or use the built-in auto-update from Preferences.
+
+### CLI install (Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alexanderheffernan/rashun/main/install.sh | bash
+```
+
+### CLI install (Windows)
+
+```powershell
+irm https://raw.githubusercontent.com/alexanderheffernan/rashun/main/scripts/install/windows.ps1 | iex
+```
 
 ### Build from Source
 
