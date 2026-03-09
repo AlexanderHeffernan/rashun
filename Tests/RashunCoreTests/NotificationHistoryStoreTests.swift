@@ -1,10 +1,9 @@
 import XCTest
-@testable import Rashun
-import RashunCore
+@testable import RashunCore
 
 @MainActor
 final class NotificationHistoryStoreTests: XCTestCase {
-    private let store = NotificationHistoryStore.shared
+    private let store = UsageHistoryStore.shared
     private let source = "TestSource"
 
     override func setUp() async throws {

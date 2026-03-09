@@ -1,6 +1,5 @@
 import XCTest
-@testable import Rashun
-import RashunCore
+@testable import RashunCore
 
 final class NotificationTests: XCTestCase {
 

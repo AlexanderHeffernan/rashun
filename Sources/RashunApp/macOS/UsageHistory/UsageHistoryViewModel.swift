@@ -59,7 +59,7 @@ final class UsageHistoryViewModel: ObservableObject {
             if source.metrics.count <= 1 {
                 let color = Self.palette[seriesIndex % Self.palette.count]
                 seriesIndex += 1
-                let history = NotificationHistoryStore.shared.history(for: source.name)
+                let history = UsageHistoryStore.shared.history(for: source.name)
                 let points = filterPoints(history, bounds: bounds)
                 let metricId = source.metrics.first?.id ?? "default"
                 let forecastPoints = filteredForecastPoints(source: source, metricId: metricId, history: history, points: points, bounds: bounds, showForecast: showForecastLines)
@@ -73,9 +73,9 @@ final class UsageHistoryViewModel: ObservableObject {
             for metric in enabledMetrics {
                 let color = Self.palette[seriesIndex % Self.palette.count]
                 seriesIndex += 1
-                var history = NotificationHistoryStore.shared.history(for: metricHistorySeriesName(source: source, metric: metric))
+                var history = UsageHistoryStore.shared.history(for: metricHistorySeriesName(source: source, metric: metric))
                 if history.isEmpty, metric.id == source.metrics.first?.id {
-                    history = NotificationHistoryStore.shared.history(for: source.name)
+                    history = UsageHistoryStore.shared.history(for: source.name)
                 }
 
                 let points = filterPoints(history, bounds: bounds)

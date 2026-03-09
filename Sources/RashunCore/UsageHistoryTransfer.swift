@@ -1,20 +1,26 @@
 import Foundation
-import RashunCore
 
-struct UsageHistoryExportFile: Codable {
-    let schemaVersion: Int
-    let exportedAt: Date
-    let appVersion: String
-    let historyBySource: [String: [UsageSnapshot]]
+public struct UsageHistoryExportFile: Codable {
+    public let schemaVersion: Int
+    public let exportedAt: Date
+    public let appVersion: String
+    public let historyBySource: [String: [UsageSnapshot]]
 
-    static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 1
+
+    public init(schemaVersion: Int, exportedAt: Date, appVersion: String, historyBySource: [String: [UsageSnapshot]]) {
+        self.schemaVersion = schemaVersion
+        self.exportedAt = exportedAt
+        self.appVersion = appVersion
+        self.historyBySource = historyBySource
+    }
 }
 
-enum UsageHistoryTransferError: LocalizedError, Equatable {
+public enum UsageHistoryTransferError: LocalizedError, Equatable {
     case unsupportedSchema(Int)
     case invalidFile
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case let .unsupportedSchema(version):
             return "Unsupported history export schema version: \(version)."
@@ -24,11 +30,7 @@ enum UsageHistoryTransferError: LocalizedError, Equatable {
     }
 }
 
-enum UsageHistoryTransferService {
-    private static let appVersion: String = {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
-    }()
-
+public enum UsageHistoryTransferService {
     private static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -42,7 +44,7 @@ enum UsageHistoryTransferService {
         return decoder
     }()
 
-    static func makeExportData(historyBySource: [String: [UsageSnapshot]]) throws -> Data {
+    public static func makeExportData(historyBySource: [String: [UsageSnapshot]], appVersion: String) throws -> Data {
         let payload = UsageHistoryExportFile(
             schemaVersion: UsageHistoryExportFile.currentSchemaVersion,
             exportedAt: Date(),
@@ -52,7 +54,7 @@ enum UsageHistoryTransferService {
         return try encoder.encode(payload)
     }
 
-    static func readImportData(from data: Data) throws -> [String: [UsageSnapshot]] {
+    public static func readImportData(from data: Data) throws -> [String: [UsageSnapshot]] {
         if let payload = try? decoder.decode(UsageHistoryExportFile.self, from: data) {
             guard payload.schemaVersion <= UsageHistoryExportFile.currentSchemaVersion else {
                 throw UsageHistoryTransferError.unsupportedSchema(payload.schemaVersion)

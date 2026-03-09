@@ -23,7 +23,7 @@ final class DataTabViewModel: ObservableObject {
     @Published var keepLastDaysText = "90"
 
     @Published private(set) var availableSourceNames: [String] = []
-    @Published private(set) var stats: HistoryStorageStats = NotificationHistoryStore.shared.stats()
+    @Published private(set) var stats: HistoryStorageStats = UsageHistoryStore.shared.stats()
 
     @Published var showDeleteConfirmation = false
     @Published private(set) var pendingDeleteMessage = ""
@@ -42,9 +42,9 @@ final class DataTabViewModel: ObservableObject {
 
     func configure(sources: [AISource]) {
         configuredSourceNames = Set(sources.map(\.name))
-        buildDeleteTargets(sources: sources, historyNames: NotificationHistoryStore.shared.sourceNamesWithHistory())
+        buildDeleteTargets(sources: sources, historyNames: UsageHistoryStore.shared.sourceNamesWithHistory())
         updateAvailableSources()
-        stats = NotificationHistoryStore.shared.stats()
+        stats = UsageHistoryStore.shared.stats()
     }
 
     var selectedSourceDisplayName: String {
@@ -92,7 +92,11 @@ final class DataTabViewModel: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            let data = try UsageHistoryTransferService.makeExportData(historyBySource: NotificationHistoryStore.shared.allHistory())
+            let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+            let data = try UsageHistoryTransferService.makeExportData(
+                historyBySource: UsageHistoryStore.shared.allHistory(),
+                appVersion: appVersion
+            )
             try data.write(to: url, options: .atomic)
             setTransferStatus("Exported usage history to \(url.lastPathComponent).")
             refreshStats()
@@ -120,7 +124,7 @@ final class DataTabViewModel: ObservableObject {
             pendingImportURL = url
             pendingImportHistory = imported
 
-            let currentStats = NotificationHistoryStore.shared.stats()
+            let currentStats = UsageHistoryStore.shared.stats()
             let incomingStats = stats(for: imported)
             pendingImportMessage = """
             This will replace your current usage history with data from \(url.lastPathComponent). This cannot be undone.
@@ -143,7 +147,7 @@ final class DataTabViewModel: ObservableObject {
         pendingImportHistory = nil
         pendingImportMessage = ""
 
-        NotificationHistoryStore.shared.replaceAllHistory(imported)
+        UsageHistoryStore.shared.replaceAllHistory(imported)
         refreshStats()
         notifyDataChanged()
         setTransferStatus("Imported \(stats.snapshotCount.formatted()) snapshots from \(url.lastPathComponent).")
@@ -172,14 +176,14 @@ final class DataTabViewModel: ObservableObject {
             if deleteScope == .singleSource {
                 let targetKeys = selectedSourceTargetKeys()
                 removed = targetKeys.reduce(0) { partial, key in
-                    partial + NotificationHistoryStore.shared.countSnapshots(sourceName: key)
+                    partial + UsageHistoryStore.shared.countSnapshots(sourceName: key)
                 }
                 for key in targetKeys {
-                    NotificationHistoryStore.shared.clearHistory(for: key)
+                    UsageHistoryStore.shared.clearHistory(for: key)
                 }
             } else {
-                removed = NotificationHistoryStore.shared.countSnapshots()
-                NotificationHistoryStore.shared.clearAllHistory()
+                removed = UsageHistoryStore.shared.countSnapshots()
+                UsageHistoryStore.shared.clearAllHistory()
             }
         case .olderThanDate, .keepLastDays:
             guard let cutoff = cutoffDate() else {
@@ -188,10 +192,10 @@ final class DataTabViewModel: ObservableObject {
             }
             if deleteScope == .singleSource {
                 removed = selectedSourceTargetKeys().reduce(0) { partial, key in
-                    partial + NotificationHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: key)
+                    partial + UsageHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: key)
                 }
             } else {
-                removed = NotificationHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: nil)
+                removed = UsageHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: nil)
             }
         }
 
@@ -205,18 +209,18 @@ final class DataTabViewModel: ObservableObject {
         case .deleteAll:
             if deleteScope == .singleSource {
                 return selectedSourceTargetKeys().reduce(0) { partial, key in
-                    partial + NotificationHistoryStore.shared.countSnapshots(sourceName: key)
+                    partial + UsageHistoryStore.shared.countSnapshots(sourceName: key)
                 }
             }
-            return NotificationHistoryStore.shared.countSnapshots()
+            return UsageHistoryStore.shared.countSnapshots()
         case .olderThanDate, .keepLastDays:
             guard let cutoff = cutoffDate() else { return nil }
             if deleteScope == .singleSource {
                 return selectedSourceTargetKeys().reduce(0) { partial, key in
-                    partial + NotificationHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: key)
+                    partial + UsageHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: key)
                 }
             }
-            return NotificationHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: nil)
+            return UsageHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: nil)
         }
     }
 
@@ -233,7 +237,7 @@ final class DataTabViewModel: ObservableObject {
     }
 
     private func refreshStats() {
-        stats = NotificationHistoryStore.shared.stats()
+        stats = UsageHistoryStore.shared.stats()
         updateAvailableSources()
     }
 

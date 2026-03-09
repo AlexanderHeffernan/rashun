@@ -321,7 +321,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     if source.metrics.count > 1 {
                         for metric in source.metrics {
                             guard let metricUsage = metricUsages[metric.id] else { continue }
-                            NotificationHistoryStore.shared.append(
+                            UsageHistoryStore.shared.append(
                                 sourceName: metricHistorySeriesName(source: source, metric: metric),
                                 usage: metricUsage
                             )
@@ -754,7 +754,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     scopeName: scopedName
                 )
                 let rules = SettingsStore.shared.ruleSettings(for: scopedName)
-                let history = NotificationHistoryStore.shared.history(for: scopedName)
+                let history = UsageHistoryStore.shared.history(for: scopedName)
                 let previous = history.last
                 let definitions = source.notificationDefinitions(for: metric.id)
 
@@ -789,7 +789,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }
                 }
 
-                NotificationHistoryStore.shared.append(sourceName: scopedName, usage: current)
+                UsageHistoryStore.shared.append(sourceName: scopedName, usage: current)
             }
         }
     }
@@ -931,18 +931,6 @@ extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
             openPreferences(tab: .updates)
         }
     }
-}
-
-func shouldSendNotification(event: NotificationEvent, state: NotificationRuleState?) -> Bool {
-    if let cycleKey = event.cycleKey, state?.lastFiredCycleKey == cycleKey {
-        return false
-    }
-    if let cooldown = event.cooldownSeconds, let last = state?.lastFiredAt {
-        if Date().timeIntervalSince(last) < cooldown {
-            return false
-        }
-    }
-    return true
 }
 
 @main

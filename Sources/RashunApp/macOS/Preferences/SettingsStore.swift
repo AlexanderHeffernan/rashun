@@ -293,19 +293,3 @@ final class SettingsStore {
         return true
     }
 }
-
-extension Notification.Name {
-    static let aiSettingsChanged = Notification.Name("ai.settings.changed")
-    static let aiDataRefreshed = Notification.Name("ai.data.refreshed")
-}
-
-struct NotificationRuleSetting: Codable {
-    var ruleId: String
-    var isEnabled: Bool
-    var inputValues: [String: Double]
-}
-
-struct NotificationRuleState: Codable {
-    var lastFiredAt: Date?
-    var lastFiredCycleKey: String?
-}

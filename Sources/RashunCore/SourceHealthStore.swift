@@ -1,18 +1,33 @@
 import Foundation
-import RashunCore
 
-struct SourceHealthRecord: Codable {
-    var lastSuccessfulUsage: UsageResult?
-    var lastSuccessAt: Date?
-    var lastFailureAt: Date?
-    var consecutiveFailures: Int
-    var shortErrorMessage: String?
-    var detailedErrorMessage: String?
+public struct SourceHealthRecord: Codable {
+    public var lastSuccessfulUsage: UsageResult?
+    public var lastSuccessAt: Date?
+    public var lastFailureAt: Date?
+    public var consecutiveFailures: Int
+    public var shortErrorMessage: String?
+    public var detailedErrorMessage: String?
+
+    public init(
+        lastSuccessfulUsage: UsageResult? = nil,
+        lastSuccessAt: Date? = nil,
+        lastFailureAt: Date? = nil,
+        consecutiveFailures: Int = 0,
+        shortErrorMessage: String? = nil,
+        detailedErrorMessage: String? = nil
+    ) {
+        self.lastSuccessfulUsage = lastSuccessfulUsage
+        self.lastSuccessAt = lastSuccessAt
+        self.lastFailureAt = lastFailureAt
+        self.consecutiveFailures = consecutiveFailures
+        self.shortErrorMessage = shortErrorMessage
+        self.detailedErrorMessage = detailedErrorMessage
+    }
 }
 
 @MainActor
-final class SourceHealthStore {
-    static let shared = SourceHealthStore()
+public final class SourceHealthStore {
+    public static let shared = SourceHealthStore()
 
     private let userDefaultsKey = "ai.sourceHealth.v1"
     private var recordsBySource: [String: SourceHealthRecord] = [:]
@@ -26,19 +41,12 @@ final class SourceHealthStore {
         return "\(sourceName)::\(metricId)"
     }
 
-    func recordSuccess(sourceName: String, metricId: String, usage: UsageResult) {
+    public func recordSuccess(sourceName: String, metricId: String, usage: UsageResult) {
         recordSuccess(sourceName: scopedName(sourceName: sourceName, metricId: metricId), usage: usage)
     }
 
-    func recordSuccess(sourceName: String, usage: UsageResult) {
-        var record = recordsBySource[sourceName] ?? SourceHealthRecord(
-            lastSuccessfulUsage: nil,
-            lastSuccessAt: nil,
-            lastFailureAt: nil,
-            consecutiveFailures: 0,
-            shortErrorMessage: nil,
-            detailedErrorMessage: nil
-        )
+    public func recordSuccess(sourceName: String, usage: UsageResult) {
+        var record = recordsBySource[sourceName] ?? SourceHealthRecord()
         record.lastSuccessfulUsage = usage
         record.lastSuccessAt = Date()
         record.consecutiveFailures = 0
@@ -48,19 +56,12 @@ final class SourceHealthStore {
         persistAndNotify()
     }
 
-    func recordFailure(sourceName: String, metricId: String, presentation: SourceFetchErrorPresentation) {
+    public func recordFailure(sourceName: String, metricId: String, presentation: SourceFetchErrorPresentation) {
         recordFailure(sourceName: scopedName(sourceName: sourceName, metricId: metricId), presentation: presentation)
     }
 
-    func recordFailure(sourceName: String, presentation: SourceFetchErrorPresentation) {
-        var record = recordsBySource[sourceName] ?? SourceHealthRecord(
-            lastSuccessfulUsage: nil,
-            lastSuccessAt: nil,
-            lastFailureAt: nil,
-            consecutiveFailures: 0,
-            shortErrorMessage: nil,
-            detailedErrorMessage: nil
-        )
+    public func recordFailure(sourceName: String, presentation: SourceFetchErrorPresentation) {
+        var record = recordsBySource[sourceName] ?? SourceHealthRecord()
         record.lastFailureAt = Date()
         record.consecutiveFailures += 1
         record.shortErrorMessage = presentation.shortMessage
@@ -69,11 +70,11 @@ final class SourceHealthStore {
         persistAndNotify()
     }
 
-    func health(for sourceName: String) -> SourceHealthRecord? {
+    public func health(for sourceName: String) -> SourceHealthRecord? {
         recordsBySource[sourceName]
     }
 
-    func health(for sourceName: String, metricId: String) -> SourceHealthRecord? {
+    public func health(for sourceName: String, metricId: String) -> SourceHealthRecord? {
         recordsBySource[scopedName(sourceName: sourceName, metricId: metricId)]
     }
 
@@ -91,8 +92,4 @@ final class SourceHealthStore {
         }
         NotificationCenter.default.post(name: .aiSourceHealthChanged, object: nil)
     }
-}
-
-extension Notification.Name {
-    static let aiSourceHealthChanged = Notification.Name("ai.sourceHealth.changed")
 }

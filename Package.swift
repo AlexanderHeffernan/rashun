@@ -27,6 +27,9 @@ targets.append(
         name: "Rashun",
         dependencies: ["RashunCore"],
         path: "Sources/RashunApp",
+        exclude: [
+            "README.md"
+        ],
         resources: [
             .process("Resources")
         ]

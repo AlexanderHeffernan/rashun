@@ -1,12 +1,11 @@
 import XCTest
-@testable import Rashun
-import RashunCore
+@testable import RashunCore
 
 final class DataManagementTests: XCTestCase {
     func testExportImport_roundTripPreservesHistory() throws {
         let input = sampleHistory()
 
-        let data = try UsageHistoryTransferService.makeExportData(historyBySource: input)
+        let data = try UsageHistoryTransferService.makeExportData(historyBySource: input, appVersion: "test")
         let decoded = try UsageHistoryTransferService.readImportData(from: data)
 
         XCTAssertEqual(decoded.keys.sorted(), input.keys.sorted())

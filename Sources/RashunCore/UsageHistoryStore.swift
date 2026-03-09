@@ -1,70 +1,83 @@
 import Foundation
-import RashunCore
 
-struct HistoryStorageStats {
-    let sourceCount: Int
-    let snapshotCount: Int
-    let oldestSnapshot: Date?
-    let newestSnapshot: Date?
-    let estimatedBytes: Int
+public struct HistoryStorageStats {
+    public let sourceCount: Int
+    public let snapshotCount: Int
+    public let oldestSnapshot: Date?
+    public let newestSnapshot: Date?
+    public let estimatedBytes: Int
+
+    public init(
+        sourceCount: Int,
+        snapshotCount: Int,
+        oldestSnapshot: Date?,
+        newestSnapshot: Date?,
+        estimatedBytes: Int
+    ) {
+        self.sourceCount = sourceCount
+        self.snapshotCount = snapshotCount
+        self.oldestSnapshot = oldestSnapshot
+        self.newestSnapshot = newestSnapshot
+        self.estimatedBytes = estimatedBytes
+    }
 }
 
 @MainActor
-final class NotificationHistoryStore {
-    static let shared = NotificationHistoryStore()
+public final class UsageHistoryStore {
+    public static let shared = UsageHistoryStore()
     private init() { load() }
 
     private let maxSnapshots = 10_000
     private let userDefaultsKey = "ai.notificationHistory.v1"
     private var historyBySource: [String: [UsageSnapshot]] = [:]
 
-    func history(for sourceName: String) -> [UsageSnapshot] {
+    public func history(for sourceName: String) -> [UsageSnapshot] {
         historyBySource[sourceName] ?? []
     }
 
-    func clearHistory(for sourceName: String) {
+    public func clearHistory(for sourceName: String) {
         historyBySource.removeValue(forKey: sourceName)
         save()
     }
 
-    func clearAllHistory() {
+    public func clearAllHistory() {
         historyBySource.removeAll()
         save()
     }
 
-    func sourceNamesWithHistory() -> [String] {
+    public func sourceNamesWithHistory() -> [String] {
         historyBySource
             .filter { !$0.value.isEmpty }
             .map(\.key)
             .sorted()
     }
 
-    func allHistory() -> [String: [UsageSnapshot]] {
+    public func allHistory() -> [String: [UsageSnapshot]] {
         historyBySource
     }
 
-    func replaceAllHistory(_ newHistory: [String: [UsageSnapshot]]) {
+    public func replaceAllHistory(_ newHistory: [String: [UsageSnapshot]]) {
         historyBySource = Self.normalizedHistory(newHistory)
         save()
     }
 
-    func countSnapshots(sourceName: String? = nil) -> Int {
+    public func countSnapshots(sourceName: String? = nil) -> Int {
         if let sourceName {
             return historyBySource[sourceName]?.count ?? 0
         }
         return historyBySource.values.reduce(0) { $0 + $1.count }
     }
 
-    func countSnapshotsOlderThan(_ cutoff: Date, sourceName: String? = nil) -> Int {
+    public func countSnapshotsOlderThan(_ cutoff: Date, sourceName: String? = nil) -> Int {
         countMatching(sourceName: sourceName) { $0.timestamp < cutoff }
     }
 
     @discardableResult
-    func deleteSnapshotsOlderThan(_ cutoff: Date, sourceName: String? = nil) -> Int {
+    public func deleteSnapshotsOlderThan(_ cutoff: Date, sourceName: String? = nil) -> Int {
         deleteMatching(sourceName: sourceName) { $0.timestamp < cutoff }
     }
 
-    func stats() -> HistoryStorageStats {
+    public func stats() -> HistoryStorageStats {
         let snapshots = historyBySource.values.flatMap { $0 }
         let oldest = snapshots.min(by: { $0.timestamp < $1.timestamp })?.timestamp
         let newest = snapshots.max(by: { $0.timestamp < $1.timestamp })?.timestamp
@@ -78,7 +91,7 @@ final class NotificationHistoryStore {
         )
     }
 
-    func append(sourceName: String, usage: UsageResult) {
+    public func append(sourceName: String, usage: UsageResult) {
         var history = historyBySource[sourceName] ?? []
         let now = Date()
         if let last = history.last, hasSameUsageState(lhs: last.usage, rhs: usage) {
