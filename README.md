@@ -5,14 +5,15 @@
 <h1 align="center">Rashun</h1>
 
 <p align="center">
-  <strong>A macOS menu bar app that tracks your AI coding tool usage across multiple sources — so you always know where you stand.</strong>
+  <strong>A usage tracker for AI coding tools: macOS menu bar app + cross-platform CLI.</strong>
 </p>
 
 <p align="center">
   <a href="#quick-install">
     <img src="https://img.shields.io/badge/install-one_command-935AFD?style=for-the-badge" alt="Install" />
   </a>
-  <img src="https://img.shields.io/badge/platform-macOS_14%2B-000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14+" />
+  <img src="https://img.shields.io/badge/app-macOS_14%2B-000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app" />
+  <img src="https://img.shields.io/badge/CLI-macOS%20%7C%20Linux%20%7C%20Windows-1f6feb?style=for-the-badge" alt="Cross-platform CLI" />
   <img src="https://img.shields.io/badge/swift-6.2-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift 6.2" />
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-0DE4D1?style=for-the-badge" alt="MIT License" />
@@ -24,6 +25,11 @@
 If you juggle multiple AI coding tools — Amp, GitHub Copilot, Codex, Gemini CLI — keeping track of how much quota you have left across all of them is a pain. You're deep in a project, it's day 22 of the month, and suddenly one of them cuts you off.
 
 Rashun sits in your menu bar, polls each source on a timer, and gives you a single at-a-glance view of your remaining quota. It charts your usage history over time, forecasts when you'll run out, and nudges you with notifications before you hit zero.
+
+Rashun is currently rolling out cross-platform support in phases:
+
+- **Today:** full macOS app experience + CLI on macOS/Linux/Windows.
+- **In progress:** extracting more shared logic into `RashunCore` so future Linux/Windows app shells can be added with minimal OS-specific code.
 
 ### Why I built this
 
@@ -72,6 +78,7 @@ irm https://raw.githubusercontent.com/alexanderheffernan/rashun/main/scripts/ins
 - **Smart notifications** — Get alerted when remaining usage drops below a threshold, when you're burning through tokens unusually fast, or when you're on pace to run out before reset. All thresholds are configurable.
 - **Source health monitoring** — If a source fails to fetch, Rashun tracks consecutive failures, surfaces actionable error messages, and shows warning indicators in the menu dropdown and Preferences.
 - **Auto-updates** — Rashun checks GitHub releases every 6 hours and notifies you when a new version is available. One-click install & restart from the Updates tab in Preferences.
+- **Cross-platform CLI** — Query all sources or a specific source from terminal with optional JSON output (`rashun`, `rashun <source>`, `rashun --json`).
 - **Launch at login** — Optionally start Rashun when you sign in to your Mac.
 - **Data management** — Export and import usage history as JSON. Delete history by source, date range, or entirely.
 - **Configurable polling** — Set how often Rashun checks your usage (default: every 2 minutes).
@@ -83,6 +90,8 @@ irm https://raw.githubusercontent.com/alexanderheffernan/rashun/main/scripts/ins
 ## How It Works
 
 Rashun polls each enabled source on a timer. For each source, it fetches current usage data (remaining quota vs. total limit), calculates the percentage remaining, records a snapshot for historical tracking, and updates the menu bar icon. It evaluates notification rules against current and historical data, and generates per-source forecasts that are rendered as dashed projections on the usage chart.
+
+The CLI uses the same `RashunCore` sources and models, so command-line output and app output are consistent.
 
 | Source | Metrics | How it fetches data |
 |---|---|---|
@@ -128,10 +137,31 @@ This downloads the latest release from GitHub, installs it to `/Applications`, a
 curl -fsSL https://raw.githubusercontent.com/alexanderheffernan/rashun/main/install.sh | bash
 ```
 
+Then run:
+
+```bash
+rashun --help
+```
+
 ### CLI install (Windows)
 
 ```powershell
 irm https://raw.githubusercontent.com/alexanderheffernan/rashun/main/scripts/install/windows.ps1 | iex
+```
+
+Then run:
+
+```powershell
+rashun --help
+```
+
+### CLI usage
+
+```bash
+rashun
+rashun copilot
+rashun --json
+rashun gemini --json
 ```
 
 ### Build from Source
@@ -222,54 +252,17 @@ Sources can also customize their behavior by implementing any of these:
 
 ```
 Sources/
-├── App.swift                          # Entry point, menu bar setup, polling loop
-├── GeneratedSourceList.swift          # Auto-generated source registry (build.sh)
-├── AISources/
-│   ├── AISource.swift                 # AISource protocol & default implementations
-│   ├── AISourceModels.swift           # UsageResult, AISourceMetric, error types
-│   ├── AmpSource.swift                # Amp Free usage fetcher
-│   ├── CopilotSource.swift            # GitHub Copilot usage fetcher
-│   ├── CodexSource.swift              # Codex session log parser
-│   └── GeminiSource.swift             # Gemini CLI multi-model usage fetcher
-├── Forecasting/
-│   ├── ForecastModels.swift           # ForecastPoint, ForecastResult types
-│   └── LinearRegression.swift         # Burn-rate regression for projections
-├── Health/
-│   └── SourceHealthStore.swift        # Tracks fetch success/failure per source
-├── Notifications/
-│   ├── NotificationModels.swift       # Core types (rules, events, contexts)
-│   ├── NotificationDefinitions.swift  # Generic rules (threshold, spike, pacing)
-│   ├── NotificationManager.swift      # macOS notification delivery & routing
-│   └── NotificationHistoryStore.swift # Usage history for rule evaluation
-├── Preferences/
-│   ├── PreferencesRootView.swift      # Root settings view with tab bar
-│   ├── PreferencesViewModel.swift     # Settings view model
-│   ├── PreferencesWindowController.swift
-│   ├── SettingsStore.swift            # Persistent settings (UserDefaults)
-│   ├── DataManagement.swift           # Import/export/delete logic
-│   ├── DataTabViewModel.swift         # Data tab view model
-│   ├── Tabs/                          # General, Sources, Data, Updates tabs
-│   └── Components/                    # Reusable Preferences UI components
-├── UI/
-│   ├── BrandTheme.swift               # Color palette and extensions
-│   ├── BrandCard.swift                # Card container component
-│   ├── BrandControls.swift            # Segmented controls, toggles, buttons
-│   └── MenuBarAppearance.swift        # Menu bar color/content mode models
-├── Update/
-│   └── UpdateManager.swift            # GitHub release checker, in-app updater
-├── UsageHistory/
-│   ├── UsageHistoryRootView.swift     # Usage History window with chart & insights
-│   ├── UsageHistoryViewModel.swift    # Chart data, series visibility, forecasts
-│   ├── UsageChartView.swift           # Chart rendering
-│   ├── UsageChartRepresentable.swift  # AppKit ↔ SwiftUI bridge for charts
-│   ├── UsageHistoryModels.swift       # Snapshot, series, chart data types
-│   └── ChartTimeRange.swift           # Time range enum (1h, 6h, 1d, 7d, 30d)
-├── Views/
-│   ├── MenuDropdownViews.swift        # Source cards in the menu dropdown
-│   ├── ChartWindowController.swift    # Usage History window controller
-│   └── RefreshButton.swift            # Hoverable refresh button
-└── Resources/
-    └── SourceLogos/                   # Amp, Copilot, Codex, Gemini logos
+├── RashunCore/                        # Cross-platform logic and data model
+│   ├── AISources/                     # Amp, Copilot, Codex, Gemini source fetchers
+│   ├── GeneratedSourceList.swift      # Auto-generated source registry (build.sh)
+│   ├── Notification*.swift            # Notification rules/models
+│   ├── UsageHistory*.swift            # Cross-platform history storage and transfer
+│   └── UpdateChecking.swift           # Cross-platform update check service
+├── RashunCLI/
+│   └── main.swift                     # Cross-platform terminal interface
+└── RashunApp/
+    ├── macOS/                         # macOS app shell (AppKit/SwiftUI integration)
+    └── Resources/                     # App assets (logos/icons)
 ```
 
 ---
@@ -278,8 +271,8 @@ Sources/
 
 Rashun uses GitHub Actions for continuous integration and automated releases:
 
-- **Tests** — Runs on every push and PR to `main`. Generates the source list, runs `swift test`, builds the app bundle, and performs a smoke test (launches the app for 6 seconds, checks for crashes).
-- **Release** — Triggers automatically when tests pass on `main`. Determines the version (auto-bumps patch, or uses a manual bump from `Info.plist`), stamps it, builds, smoke tests, zips the app, and creates a GitHub release with the install command.
+- **Tests** — Runs on every push and PR to `main`. Core/CLI tests run on macOS, Linux, and Windows. macOS also runs app build + app smoke test.
+- **Release** — Triggers automatically when tests pass on `main`. Builds and publishes artifacts for macOS app (`Rashun.zip`) plus CLI artifacts for macOS/Linux/Windows.
 
 ---
 

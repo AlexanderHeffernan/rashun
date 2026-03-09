@@ -28,8 +28,8 @@ jobs:
         if: runner.os == 'Windows'
         uses: compnerd/gha-setup-swift@main
         with:
-          swift-version: 6.2.4
-          swift-build: release/6.2
+          swift-version: swift-6.2-release
+          swift-build: 6.2-RELEASE
 
       - name: Run tests
         run: swift test
