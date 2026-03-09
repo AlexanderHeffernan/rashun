@@ -11,7 +11,10 @@ struct RashunCLI: AsyncParsableCommand {
         commandName: "rashun",
         abstract: "AI usage monitor CLI",
         discussion: "Run `rashun --help` to see all commands.",
-        subcommands: [VersionCommand.self]
+        subcommands: [
+            SourcesCommand.self,
+            VersionCommand.self
+        ]
     )
 
     func run() async throws {

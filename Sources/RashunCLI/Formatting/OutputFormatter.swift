@@ -14,6 +14,7 @@ struct OutputFormatter {
         case red = "\u{001B}[31m"
         case green = "\u{001B}[32m"
         case yellow = "\u{001B}[33m"
+        case magenta = "\u{001B}[35m"
         case cyan = "\u{001B}[36m"
         case bold = "\u{001B}[1m"
     }
