@@ -73,7 +73,13 @@ public final class FilePersistenceBackend: PersistenceBackend, @unchecked Sendab
 
 public enum PersistenceBackendFactory {
     public static func `default`() -> PersistenceBackend {
-        #if os(macOS) || os(iOS) || os(tvOS) || os(watchOS)
+        #if os(macOS)
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let url = appSupport.appendingPathComponent("Rashun", isDirectory: true)
+        return FilePersistenceBackend(directoryURL: url)
+        #elseif os(iOS) || os(tvOS) || os(watchOS)
         return UserDefaultsBackend()
         #elseif os(Windows)
         let env = ProcessInfo.processInfo.environment

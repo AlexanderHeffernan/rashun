@@ -14,6 +14,7 @@ struct RashunCLI: AsyncParsableCommand {
         subcommands: [
             CheckCommand.self,
             ForecastCommand.self,
+            HistoryCommand.self,
             StatusCommand.self,
             SourcesCommand.self,
             VersionCommand.self

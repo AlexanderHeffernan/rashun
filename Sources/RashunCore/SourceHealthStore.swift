@@ -81,11 +81,43 @@ public final class SourceHealthStore {
     }
 
     private func load() {
-        guard let data = backend.data(forKey: userDefaultsKey),
-              let decoded = try? JSONDecoder().decode([String: SourceHealthRecord].self, from: data) else {
-            return
+        var bestRecords: [String: SourceHealthRecord] = [:]
+        var bestCount = -1
+
+        if let data = backend.data(forKey: userDefaultsKey),
+           let decoded = try? JSONDecoder().decode([String: SourceHealthRecord].self, from: data) {
+            bestRecords = decoded
+            bestCount = decoded.count
         }
-        recordsBySource = decoded
+
+        for defaults in legacyUserDefaultsCandidates() {
+            guard let legacyData = defaults.data(forKey: userDefaultsKey),
+                  let decoded = try? JSONDecoder().decode([String: SourceHealthRecord].self, from: legacyData) else {
+                continue
+            }
+
+            if decoded.count > bestCount {
+                bestRecords = decoded
+                bestCount = decoded.count
+            }
+        }
+
+        recordsBySource = bestRecords
+        if bestCount >= 0,
+           let encoded = try? JSONEncoder().encode(bestRecords) {
+            backend.set(encoded, forKey: userDefaultsKey)
+        }
+    }
+
+    private func legacyUserDefaultsCandidates() -> [UserDefaults] {
+        var candidates: [UserDefaults] = [.standard]
+        if let appSuite = UserDefaults(suiteName: "com.alexanderheffernan.rashun") {
+            candidates.append(appSuite)
+        }
+        if let appSuite = UserDefaults(suiteName: "Rashun") {
+            candidates.append(appSuite)
+        }
+        return candidates
     }
 
     private func persistAndNotify() {

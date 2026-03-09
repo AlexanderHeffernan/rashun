@@ -122,9 +122,49 @@ public final class UsageHistoryStore {
     }
 
     private func load() {
-        guard let data = backend.data(forKey: userDefaultsKey),
-              let decoded = try? JSONDecoder().decode([String: [UsageSnapshot]].self, from: data) else { return }
-        historyBySource = decoded
+        var bestHistory: [String: [UsageSnapshot]] = [:]
+        var bestSnapshotCount = -1
+
+        if let data = backend.data(forKey: userDefaultsKey),
+           let decoded = try? JSONDecoder().decode([String: [UsageSnapshot]].self, from: data) {
+            let count = Self.snapshotCount(in: decoded)
+            bestHistory = decoded
+            bestSnapshotCount = count
+        }
+
+        for defaults in legacyUserDefaultsCandidates() {
+            guard let legacyData = defaults.data(forKey: userDefaultsKey),
+                  let decoded = try? JSONDecoder().decode([String: [UsageSnapshot]].self, from: legacyData) else {
+                continue
+            }
+
+            let count = Self.snapshotCount(in: decoded)
+            if count > bestSnapshotCount {
+                bestHistory = decoded
+                bestSnapshotCount = count
+            }
+        }
+
+        historyBySource = bestHistory
+        if bestSnapshotCount >= 0,
+           let encoded = try? JSONEncoder().encode(bestHistory) {
+            backend.set(encoded, forKey: userDefaultsKey)
+        }
+    }
+
+    private func legacyUserDefaultsCandidates() -> [UserDefaults] {
+        var candidates: [UserDefaults] = [.standard]
+        if let appSuite = UserDefaults(suiteName: "com.alexanderheffernan.rashun") {
+            candidates.append(appSuite)
+        }
+        if let appSuite = UserDefaults(suiteName: "Rashun") {
+            candidates.append(appSuite)
+        }
+        return candidates
+    }
+
+    private static func snapshotCount(in history: [String: [UsageSnapshot]]) -> Int {
+        history.values.reduce(0) { $0 + $1.count }
     }
 
     private func save() {
