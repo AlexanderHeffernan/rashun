@@ -92,7 +92,7 @@ final class DataTabViewModel: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+            let appVersion = Versioning.versionString(bundle: .main)
             let data = try UsageHistoryTransferService.makeExportData(
                 historyBySource: UsageHistoryStore.shared.allHistory(),
                 appVersion: appVersion

@@ -7,11 +7,12 @@ struct RashunCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "rashun",
         abstract: "AI usage monitor CLI",
-        discussion: "Run `rashun --help` to see all commands."
+        discussion: "Run `rashun --help` to see all commands.",
+        subcommands: [VersionCommand.self]
     )
 
     func run() async throws {
-        print("Rashun -- AI Usage Monitor")
+        print("Rashun v\(Versioning.versionString()) -- AI Usage Monitor")
         print("")
         print("Quick start:")
         print("  rashun sources          See available AI sources and setup status")
