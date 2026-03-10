@@ -8,7 +8,8 @@ struct HistoryCommand: AsyncParsableCommand {
         abstract: "Inspect stored usage history",
         subcommands: [
             HistoryShowCommand.self,
-            HistoryStatsCommand.self
+            HistoryStatsCommand.self,
+            HistoryClearCommand.self
         ],
         defaultSubcommand: HistoryShowCommand.self
     )
@@ -271,4 +272,200 @@ private struct HistoryStatsResponse: Encodable {
     let oldestSnapshot: Date?
     let newestSnapshot: Date?
     let estimatedBytes: Int
+}
+
+struct HistoryClearCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "clear",
+        abstract: "Clear stored history snapshots"
+    )
+
+    @OptionGroup
+    var global: GlobalOptions
+
+    @Argument(help: "Optional source name to clear (omit to clear all sources)")
+    var sourceName: String?
+
+    @Option(name: .long, help: "Delete only snapshots older than this many days")
+    var olderThan: Int?
+
+    @Flag(name: [.short, .long], help: "Skip confirmation prompt")
+    var yes = false
+
+    @MainActor
+    func run() async throws {
+        if let olderThan, olderThan <= 0 {
+            try emitErrorAndExit(
+                code: "invalid_argument",
+                short: "Invalid --older-than value",
+                detail: "--older-than must be greater than 0 days.",
+                exitCode: 2
+            )
+            return
+        }
+
+        let source = try resolveSourceIfNeeded()
+        let targetKeys = source.map(historyKeys(for:))
+
+        let deletionPlan = planDeletion(source: source, keys: targetKeys)
+
+        if global.json {
+            guard yes else {
+                try emitErrorAndExit(
+                    code: "confirmation_required",
+                    short: "Confirmation required",
+                    detail: "Pass --yes to confirm history deletion when using --json.",
+                    exitCode: 4
+                )
+                return
+            }
+        } else if !yes {
+            let confirmed = askForConfirmation(plan: deletionPlan)
+            guard confirmed else {
+                let formatter = OutputFormatter(noColor: global.noColor)
+                print("\(formatter.emoji("⚠️", fallback: "!")) Cancelled. No snapshots were deleted.")
+                throw ExitCode(4)
+            }
+        }
+
+        let deleted = performDeletion(plan: deletionPlan)
+
+        if global.json {
+            try JSONOutput.print(HistoryClearResponse(
+                source: source?.name,
+                olderThanDays: olderThan,
+                deletedSnapshots: deleted
+            ))
+            return
+        }
+
+        let formatter = OutputFormatter(noColor: global.noColor)
+        if let source {
+            print("\(formatter.emoji("✅", fallback: "[ok]")) Cleared \(deleted) snapshots for \(source.name).")
+        } else {
+            print("\(formatter.emoji("✅", fallback: "[ok]")) Cleared \(deleted) snapshots across all sources.")
+        }
+    }
+
+    @MainActor
+    private func resolveSourceIfNeeded() throws -> AISource? {
+        guard let sourceName else { return nil }
+        guard let source = SourceResolver.resolve(sourceName) else {
+            try emitErrorAndExit(
+                code: "unknown_source",
+                short: "Unknown source",
+                detail: "No source named '\(sourceName)' is available. Run `rashun sources` to see supported sources.",
+                exitCode: 2
+            )
+            return nil
+        }
+        return source
+    }
+
+    private func historyKeys(for source: AISource) -> [String] {
+        if source.metrics.count <= 1 {
+            return [source.name]
+        }
+
+        var keys = [source.name]
+        keys.append(contentsOf: source.metrics.map { "\(source.name)::\($0.id)" })
+        return keys
+    }
+
+    @MainActor
+    private func planDeletion(source: AISource?, keys: [String]?) -> DeletionPlan {
+        if let days = olderThan {
+            let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+            let count: Int
+            if let keys {
+                count = keys.reduce(0) { total, key in
+                    total + UsageHistoryStore.shared.countSnapshotsOlderThan(cutoff, sourceName: key)
+                }
+            } else {
+                count = UsageHistoryStore.shared.countSnapshotsOlderThan(cutoff)
+            }
+            return DeletionPlan(source: source, keys: keys, cutoff: cutoff, targetCount: count)
+        }
+
+        let count: Int
+        if let keys {
+            count = keys.reduce(0) { total, key in
+                total + UsageHistoryStore.shared.countSnapshots(sourceName: key)
+            }
+        } else {
+            count = UsageHistoryStore.shared.countSnapshots()
+        }
+        return DeletionPlan(source: source, keys: keys, cutoff: nil, targetCount: count)
+    }
+
+    private func askForConfirmation(plan: DeletionPlan) -> Bool {
+        if let source = plan.source {
+            if let days = olderThan {
+                print("⚠️  This will delete \(plan.targetCount) snapshots older than \(days) days for \(source.name). Continue? [y/N]")
+            } else {
+                print("⚠️  This will delete all \(plan.targetCount) snapshots for \(source.name). Continue? [y/N]")
+            }
+        } else {
+            if let days = olderThan {
+                print("⚠️  This will delete \(plan.targetCount) snapshots older than \(days) days across all sources. Continue? [y/N]")
+            } else {
+                print("⚠️  This will delete all \(plan.targetCount) snapshots across all sources. Continue? [y/N]")
+            }
+        }
+
+        guard let input = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
+            return false
+        }
+        return input == "y" || input == "yes"
+    }
+
+    @MainActor
+    private func performDeletion(plan: DeletionPlan) -> Int {
+        if let cutoff = plan.cutoff {
+            if let keys = plan.keys {
+                return keys.reduce(0) { total, key in
+                    total + UsageHistoryStore.shared.deleteSnapshotsOlderThan(cutoff, sourceName: key)
+                }
+            }
+            return UsageHistoryStore.shared.deleteSnapshotsOlderThan(cutoff)
+        }
+
+        if let keys = plan.keys {
+            let removed = keys.reduce(0) { total, key in
+                total + UsageHistoryStore.shared.countSnapshots(sourceName: key)
+            }
+            for key in keys {
+                UsageHistoryStore.shared.clearHistory(for: key)
+            }
+            return removed
+        }
+
+        let removed = UsageHistoryStore.shared.countSnapshots()
+        UsageHistoryStore.shared.clearAllHistory()
+        return removed
+    }
+
+    private func emitErrorAndExit(code: String, short: String, detail: String, exitCode: Int32) throws {
+        if global.json {
+            try JSONOutput.print(JSONErrorEnvelope(error: ErrorStatus(code: code, short: short, detail: detail)))
+        } else {
+            let formatter = OutputFormatter(noColor: global.noColor)
+            print("\(formatter.emoji("❌", fallback: "[x]")) \(formatter.colorize(short, as: .yellow))")
+            print(detail)
+        }
+        throw ExitCode(exitCode)
+    }
+}
+
+private struct DeletionPlan {
+    let source: AISource?
+    let keys: [String]?
+    let cutoff: Date?
+    let targetCount: Int
+}
+
+private struct HistoryClearResponse: Encodable {
+    let source: String?
+    let olderThanDays: Int?
+    let deletedSnapshots: Int
 }

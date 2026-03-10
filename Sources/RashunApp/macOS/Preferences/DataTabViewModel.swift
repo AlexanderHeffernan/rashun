@@ -147,7 +147,11 @@ final class DataTabViewModel: ObservableObject {
         pendingImportHistory = nil
         pendingImportMessage = ""
 
-        UsageHistoryStore.shared.replaceAllHistory(imported)
+        let didReplace = UsageHistoryStore.shared.replaceAllHistory(imported, force: true)
+        guard didReplace else {
+            setTransferStatus("Import was blocked to protect existing history. Please try again.", isError: true)
+            return
+        }
         refreshStats()
         notifyDataChanged()
         setTransferStatus("Imported \(stats.snapshotCount.formatted()) snapshots from \(url.lastPathComponent).")

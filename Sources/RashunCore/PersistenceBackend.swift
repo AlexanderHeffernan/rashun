@@ -97,6 +97,19 @@ public enum PersistenceBackendFactory {
         return FilePersistenceBackend(directoryURL: url)
         #endif
     }
+
+    public static func defaultLegacyBackends() -> [PersistenceBackend] {
+        var backends: [PersistenceBackend] = [UserDefaultsBackend()]
+
+        if let appSuite = UserDefaults(suiteName: "com.alexanderheffernan.rashun") {
+            backends.append(UserDefaultsBackend(userDefaults: appSuite))
+        }
+        if let appSuite = UserDefaults(suiteName: "Rashun") {
+            backends.append(UserDefaultsBackend(userDefaults: appSuite))
+        }
+
+        return backends
+    }
 }
 
 public final class InMemoryPersistenceBackend: PersistenceBackend, @unchecked Sendable {

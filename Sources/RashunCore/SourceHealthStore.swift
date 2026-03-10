@@ -30,11 +30,17 @@ public final class SourceHealthStore {
     public static let shared = SourceHealthStore(backend: PersistenceBackendFactory.default())
 
     private let userDefaultsKey = "ai.sourceHealth.v1"
+    private let migrationKey = "ai.sourceHealth.migrated.v1"
     private let backend: PersistenceBackend
+    private let legacyBackends: [PersistenceBackend]
     private var recordsBySource: [String: SourceHealthRecord] = [:]
 
-    public init(backend: PersistenceBackend) {
+    public init(
+        backend: PersistenceBackend,
+        legacyBackends: [PersistenceBackend] = PersistenceBackendFactory.defaultLegacyBackends()
+    ) {
         self.backend = backend
+        self.legacyBackends = legacyBackends
         load()
     }
 
@@ -80,44 +86,56 @@ public final class SourceHealthStore {
         recordsBySource[scopedName(sourceName: sourceName, metricId: metricId)]
     }
 
-    private func load() {
-        var bestRecords: [String: SourceHealthRecord] = [:]
-        var bestCount = -1
-
-        if let data = backend.data(forKey: userDefaultsKey),
-           let decoded = try? JSONDecoder().decode([String: SourceHealthRecord].self, from: data) {
-            bestRecords = decoded
-            bestCount = decoded.count
-        }
-
-        for defaults in legacyUserDefaultsCandidates() {
-            guard let legacyData = defaults.data(forKey: userDefaultsKey),
-                  let decoded = try? JSONDecoder().decode([String: SourceHealthRecord].self, from: legacyData) else {
-                continue
-            }
-
-            if decoded.count > bestCount {
-                bestRecords = decoded
-                bestCount = decoded.count
-            }
-        }
-
-        recordsBySource = bestRecords
-        if bestCount >= 0,
-           let encoded = try? JSONEncoder().encode(bestRecords) {
-            backend.set(encoded, forKey: userDefaultsKey)
-        }
+    public func resetMigrationStateForTesting() {
+        backend.set(nil, forKey: migrationKey)
     }
 
-    private func legacyUserDefaultsCandidates() -> [UserDefaults] {
-        var candidates: [UserDefaults] = [.standard]
-        if let appSuite = UserDefaults(suiteName: "com.alexanderheffernan.rashun") {
-            candidates.append(appSuite)
+    private func load() {
+        let hasMigrated = backend.data(forKey: migrationKey) != nil
+
+        let sharedRecords = decodeRecords(from: backend.data(forKey: userDefaultsKey))
+        let sharedCount = sharedRecords.count
+
+        if hasMigrated {
+            recordsBySource = sharedRecords
+            return
         }
-        if let appSuite = UserDefaults(suiteName: "Rashun") {
-            candidates.append(appSuite)
+
+        var bestLegacyRecords: [String: SourceHealthRecord] = [:]
+        var bestLegacyCount = 0
+
+        for legacy in legacyBackends {
+            guard let legacyData = legacy.data(forKey: userDefaultsKey) else {
+                continue
+            }
+            let decoded = decodeRecords(from: legacyData)
+            guard !decoded.isEmpty else { continue }
+
+            if decoded.count > bestLegacyCount {
+                bestLegacyRecords = decoded
+                bestLegacyCount = decoded.count
+            }
         }
-        return candidates
+
+        if sharedCount > 0 || bestLegacyCount > 0 {
+            writeMigrationBackup(named: "shared", records: sharedRecords)
+            writeMigrationBackup(named: "legacy", records: bestLegacyRecords)
+        }
+
+        let chosen = bestLegacyCount > sharedCount ? bestLegacyRecords : sharedRecords
+        recordsBySource = chosen
+        if let encoded = try? JSONEncoder().encode(chosen) {
+            backend.set(encoded, forKey: userDefaultsKey)
+        }
+        backend.set(Data([1]), forKey: migrationKey)
+    }
+
+    private func decodeRecords(from data: Data?) -> [String: SourceHealthRecord] {
+        guard let data,
+              let decoded = try? JSONDecoder().decode([String: SourceHealthRecord].self, from: data) else {
+            return [:]
+        }
+        return decoded
     }
 
     private func persistAndNotify() {
@@ -126,6 +144,24 @@ public final class SourceHealthStore {
         }
         #if canImport(AppKit) || canImport(UIKit)
         NotificationCenter.default.post(name: .aiSourceHealthChanged, object: nil)
+        #endif
+    }
+
+    private func writeMigrationBackup(named suffix: String, records: [String: SourceHealthRecord]) {
+        guard !records.isEmpty else { return }
+        #if os(macOS)
+        let fm = FileManager.default
+        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let backupDir = appSupport
+            .appendingPathComponent("Rashun", isDirectory: true)
+            .appendingPathComponent("Backups", isDirectory: true)
+        try? fm.createDirectory(at: backupDir, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let fileURL = backupDir.appendingPathComponent("health-\(suffix)-\(stamp).json")
+        if let data = try? JSONEncoder().encode(records) {
+            try? data.write(to: fileURL, options: .atomic)
+        }
         #endif
     }
 }
