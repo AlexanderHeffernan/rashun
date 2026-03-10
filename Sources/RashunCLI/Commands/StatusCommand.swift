@@ -215,9 +215,30 @@ struct StatusCommand: AsyncParsableCommand {
     }
 
     private func shortResetText(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        let seconds = Int(date.timeIntervalSinceNow.rounded())
+        let future = seconds >= 0
+        let absSeconds = abs(seconds)
+
+        let value: Int
+        let unit: String
+        if absSeconds >= 86_400 {
+            value = absSeconds / 86_400
+            unit = "d"
+        } else if absSeconds >= 3_600 {
+            value = absSeconds / 3_600
+            unit = "h"
+        } else if absSeconds >= 60 {
+            value = absSeconds / 60
+            unit = "m"
+        } else {
+            value = absSeconds
+            unit = "s"
+        }
+
+        if future {
+            return "in \(value)\(unit)"
+        }
+        return "\(value)\(unit) ago"
     }
 
     private func emitErrorAndExit(code: String, short: String, detail: String, exitCode: Int32) throws {
