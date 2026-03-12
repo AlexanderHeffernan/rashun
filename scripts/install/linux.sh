@@ -6,6 +6,7 @@ RELEASE_BASE_URL="https://github.com/$REPO/releases/latest/download"
 INSTALL_ROOT="${HOME}/.local"
 BIN_DIR="$INSTALL_ROOT/bin"
 TARGET="$BIN_DIR/rashun"
+LIBEXEC_DIR="$INSTALL_ROOT/lib/rashun"
 
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -86,9 +87,23 @@ if ! download_cli_archive "$ARCH" "$TMPDIR/rashun-cli-linux.tar.gz"; then
 fi
 
 mkdir -p "$BIN_DIR"
-tar -xzf "$TMPDIR/rashun-cli-linux.tar.gz" -C "$TMPDIR"
-mv "$TMPDIR/rashun" "$TARGET"
-chmod +x "$TARGET"
+EXTRACT_DIR="$TMPDIR/extracted"
+mkdir -p "$EXTRACT_DIR"
+tar -xzf "$TMPDIR/rashun-cli-linux.tar.gz" -C "$EXTRACT_DIR"
+
+if [ -f "$EXTRACT_DIR/rashun" ] && [ -f "$EXTRACT_DIR/rashun-bin" ]; then
+  rm -rf "$LIBEXEC_DIR"
+  mkdir -p "$LIBEXEC_DIR"
+  cp -a "$EXTRACT_DIR/rashun" "$LIBEXEC_DIR/"
+  cp -a "$EXTRACT_DIR/rashun-bin" "$LIBEXEC_DIR/"
+  if [ -d "$EXTRACT_DIR/lib" ]; then
+    cp -a "$EXTRACT_DIR/lib" "$LIBEXEC_DIR/"
+  fi
+  ln -sfn "$LIBEXEC_DIR/rashun" "$TARGET"
+else
+  mv "$EXTRACT_DIR/rashun" "$TARGET"
+  chmod +x "$TARGET"
+fi
 
 echo "Installed: $TARGET"
 case ":$PATH:" in

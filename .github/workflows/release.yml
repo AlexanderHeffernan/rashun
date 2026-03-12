@@ -180,16 +180,32 @@ jobs:
           CLI_PACKAGE_NAME: ${{ matrix.cli_package_name }}
         run: |
           set -euo pipefail
-          cp .build/release/RashunCLI rashun
-          chmod +x rashun
+          packageDir="rashun-linux-cli"
+          rm -rf "$packageDir"
+          mkdir -p "$packageDir/lib"
 
-          help_output="$(./rashun --help 2>&1 || true)"
+          cp .build/release/RashunCLI "$packageDir/rashun-bin"
+          chmod +x "$packageDir/rashun-bin"
+
+          runtimePath="$(swift -print-target-info | python3 -c 'import json,sys; print(json.load(sys.stdin)["paths"]["runtimeLibraryPaths"][0])')"
+          cp -a "$runtimePath"/lib*.so* "$packageDir/lib/"
+
+          cat > "$packageDir/rashun" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          export LD_LIBRARY_PATH="$SCRIPT_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec "$SCRIPT_DIR/rashun-bin" "$@"
+          EOF
+          chmod +x "$packageDir/rashun"
+
+          help_output="$("$packageDir/rashun" --help 2>&1 || true)"
           if [ -z "$help_output" ]; then
             echo "Linux CLI smoke test failed: rashun --help returned empty output" >&2
             exit 1
           fi
 
-          tar -czf "$CLI_PACKAGE_NAME" rashun
+          tar -czf "$CLI_PACKAGE_NAME" -C "$packageDir" .
 
       - name: Package Windows CLI
         if: runner.os == 'Windows'
