@@ -54,8 +54,13 @@ jobs:
             artifact_name: rashun-macos-app
             artifact_path: Rashun.zip
           - os: ubuntu-latest
-            artifact_name: rashun-cli-linux
-            artifact_path: rashun-cli-linux.tar.gz
+            artifact_name: rashun-cli-linux-x86_64
+            artifact_path: rashun-cli-linux-x86_64.tar.gz
+            cli_package_name: rashun-cli-linux-x86_64.tar.gz
+          - os: ubuntu-24.04-arm
+            artifact_name: rashun-cli-linux-aarch64
+            artifact_path: rashun-cli-linux-aarch64.tar.gz
+            cli_package_name: rashun-cli-linux-aarch64.tar.gz
           - os: windows-latest
             artifact_name: rashun-cli-windows
             artifact_path: rashun-cli-windows.zip
@@ -154,6 +159,8 @@ jobs:
       - name: Package Linux CLI
         if: runner.os == 'Linux'
         shell: bash
+        env:
+          CLI_PACKAGE_NAME: ${{ matrix.cli_package_name }}
         run: |
           set -euo pipefail
           cp .build/release/RashunCLI rashun
@@ -165,7 +172,7 @@ jobs:
             exit 1
           fi
 
-          tar -czf rashun-cli-linux.tar.gz rashun
+          tar -czf "$CLI_PACKAGE_NAME" rashun
 
       - name: Package Windows CLI
         if: runner.os == 'Windows'
@@ -229,7 +236,16 @@ jobs:
       - name: Download Linux CLI artifact
         uses: actions/download-artifact@v4
         with:
-          name: rashun-cli-linux
+          name: rashun-cli-linux-x86_64
+
+      - name: Download Linux ARM64 CLI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: rashun-cli-linux-aarch64
+
+      - name: Restore legacy Linux artifact name
+        shell: bash
+        run: cp rashun-cli-linux-x86_64.tar.gz rashun-cli-linux.tar.gz
 
       - name: Download Windows CLI artifact
         uses: actions/download-artifact@v4
@@ -249,6 +265,8 @@ jobs:
           gh release create "v${RELEASE_VERSION}" \
             Rashun.zip \
             rashun-cli-macos.tar.gz \
+            rashun-cli-linux-x86_64.tar.gz \
+            rashun-cli-linux-aarch64.tar.gz \
             rashun-cli-linux.tar.gz \
             rashun-cli-windows.zip \
             --title "v${RELEASE_VERSION}" \
@@ -262,6 +280,8 @@ jobs:
 
           **CLI artifacts:**
           - macOS: \`rashun-cli-macos.tar.gz\`
-          - Linux: \`rashun-cli-linux.tar.gz\`
+          - Linux x86_64: \`rashun-cli-linux-x86_64.tar.gz\`
+          - Linux aarch64/arm64: \`rashun-cli-linux-aarch64.tar.gz\`
+          - Linux (legacy x86_64 name): \`rashun-cli-linux.tar.gz\`
           - Windows: \`rashun-cli-windows.zip\`
           "

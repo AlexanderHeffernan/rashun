@@ -2,13 +2,56 @@
 set -euo pipefail
 
 REPO="alexanderheffernan/rashun"
-DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/rashun-cli-linux.tar.gz"
+RELEASE_BASE_URL="https://github.com/$REPO/releases/latest/download"
 INSTALL_ROOT="${HOME}/.local"
 BIN_DIR="$INSTALL_ROOT/bin"
 TARGET="$BIN_DIR/rashun"
 
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
+
+detect_linux_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64)
+      printf 'x86_64'
+      ;;
+    aarch64|arm64)
+      printf 'aarch64'
+      ;;
+    *)
+      printf 'unsupported'
+      ;;
+  esac
+}
+
+download_cli_archive() {
+  local arch="$1"
+  local out_file="$2"
+
+  if [ "$arch" = "x86_64" ]; then
+    # Keep compatibility with older releases that only published rashun-cli-linux.tar.gz.
+    local primary_url="$RELEASE_BASE_URL/rashun-cli-linux-x86_64.tar.gz"
+    local legacy_url="$RELEASE_BASE_URL/rashun-cli-linux.tar.gz"
+
+    if curl -fsSL -o "$out_file" "$primary_url"; then
+      return 0
+    fi
+
+    echo "x86_64 artifact not found; falling back to legacy Linux artifact..."
+    curl -fsSL -o "$out_file" "$legacy_url"
+    return 0
+  fi
+
+  if [ "$arch" = "aarch64" ]; then
+    local arm_url="$RELEASE_BASE_URL/rashun-cli-linux-aarch64.tar.gz"
+    curl -fsSL -o "$out_file" "$arm_url"
+    return 0
+  fi
+
+  echo "Unsupported Linux architecture: $(uname -m)" >&2
+  echo "Supported architectures: x86_64, aarch64/arm64" >&2
+  exit 1
+}
 
 ensure_path_persisted() {
   local line='export PATH="$HOME/.local/bin:$PATH"'
@@ -28,8 +71,19 @@ ensure_path_persisted() {
   fi
 }
 
+ARCH="$(detect_linux_arch)"
+echo "Detected Linux architecture: $ARCH"
 echo "Downloading Linux CLI artifact..."
-curl -fsSL -o "$TMPDIR/rashun-cli-linux.tar.gz" "$DOWNLOAD_URL"
+
+if ! download_cli_archive "$ARCH" "$TMPDIR/rashun-cli-linux.tar.gz"; then
+  if [ "$ARCH" = "aarch64" ]; then
+    echo "No Linux aarch64 release artifact is available yet." >&2
+    echo "You can build from source with: ./build.sh --cli-only --link-cli" >&2
+  else
+    echo "Failed to download Linux CLI artifact for architecture: $ARCH" >&2
+  fi
+  exit 1
+fi
 
 mkdir -p "$BIN_DIR"
 tar -xzf "$TMPDIR/rashun-cli-linux.tar.gz" -C "$TMPDIR"
