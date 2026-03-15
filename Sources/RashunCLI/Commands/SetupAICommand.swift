@@ -105,7 +105,7 @@ struct SetupAICommand: AsyncParsableCommand {
 
     @MainActor
     private func runRemove() throws {
-        let agents = AgentDetector.detectAll()
+        let agents = AgentDetector.detectAll().filter { !$0.source.agentRequiresManualSetup }
         let withSkill = agents.filter { SkillInstaller.isInstalled(for: $0.source) }
 
         if withSkill.isEmpty {
