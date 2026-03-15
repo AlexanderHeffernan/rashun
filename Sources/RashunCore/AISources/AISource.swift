@@ -80,6 +80,17 @@ extension AISource {
 
     public var menuBarBrandColorHex: UInt32 { 0x935AFD }
 
+    /// Directory that indicates the agent is installed (e.g. "~/.config/amp").
+    /// Return nil if this source has no associated agent.
+    public var agentConfigDirectory: String? { nil }
+
+    /// Path to the agent's global instruction file where skill text is injected.
+    /// Return nil if the agent requires manual setup.
+    public var agentInstructionFilePath: String? { nil }
+
+    /// Display name for the agent in CLI output. Defaults to the source name.
+    public var agentName: String { name }
+
     /// Shared helper used when a source receives an unsupported metric ID.
     public func unsupportedMetricError(_ metricId: String) -> NSError {
         NSError(
